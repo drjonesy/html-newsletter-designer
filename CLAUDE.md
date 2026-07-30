@@ -54,6 +54,25 @@ Auto-save: a `useEffect` writes `template` to `localStorage` under
 `EmailElement` will break saved templates for existing users — either migrate on read or
 bump that key.
 
+### Project files
+
+[src/utils/templateFile.ts](src/utils/templateFile.ts) defines the save/open format:
+`.newsletter.json`, a versioned envelope (`format`, `version`, `savedAt`) wrapping the
+whole `NewsletterTemplate`. This is the *editable source*; exported HTML is the output.
+Uploaded images are already data URIs, so a project file is self-contained.
+
+`parseTemplateFile` treats file contents as untrusted — it returns a
+`{ status: 'error', error }` message for the user rather than throwing, and rebuilds each
+block as `{ ...createNewElement(type), ...fileData }` so a file missing fields (older
+build, hand-edited) still loads. Unknown block types are dropped with a warning instead of
+failing the whole load. Keep that shape: never `setTemplate` straight from parsed JSON.
+
+If you change `EmailElement` in a way older builds can't read, bump `TEMPLATE_FILE_VERSION`
+and migrate on read. Additive optional fields don't need a bump.
+
+Note the discriminant is the string `status`, not a boolean `ok` — `tsconfig.json` has no
+`strict`, and boolean-literal discriminants don't narrow reliably without `strictNullChecks`.
+
 ### Elements are a discriminated union
 
 [src/types.ts](src/types.ts) defines `EmailElement` as a union discriminated on `type`
@@ -141,8 +160,8 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | File | Role |
 | --- | --- |
 | [App.tsx](src/App.tsx) | All state + every mutation handler |
-| [Navbar.tsx](src/components/Navbar.tsx) | Preset picker, view mode (desktop/mobile/code), export/import/reset actions |
-| [SidebarElements.tsx](src/components/SidebarElements.tsx) | Element list, reorder, select, delete, duplicate |
+| [Navbar.tsx](src/components/Navbar.tsx) | Preset picker, view mode (desktop/mobile/code), new/save/open project file, export/import actions |
+| [SidebarElements.tsx](src/components/SidebarElements.tsx) | Element palette; "Canvas Style" tab holds the newsletter name + global `EmailSettings` |
 | [VisualCanvas.tsx](src/components/VisualCanvas.tsx) | Live preview; renders generated HTML per block, handles selection |
 | [InspectorPanel.tsx](src/components/InspectorPanel.tsx) | Per-element property editors + global `EmailSettings` |
 | [CodeEditor.tsx](src/components/CodeEditor.tsx) | Read-only generated-HTML view |
@@ -150,9 +169,14 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | [ImportHtmlModal.tsx](src/components/ImportHtmlModal.tsx) | Paste raw HTML → wraps it as a `custom-html` element |
 | [ExportModal.tsx](src/components/ExportModal.tsx) | Copy / download / open-in-new-tab |
 
-[src/utils/defaultTemplate.ts](src/utils/defaultTemplate.ts) holds `WEDNESDAY_STUDY_TEMPLATE`
-(the seed template loaded on first run) and `PRESET_TEMPLATES`. It contains real
-church-newsletter copy — treat it as sample content, and don't "clean up" the wording.
+[src/utils/defaultTemplate.ts](src/utils/defaultTemplate.ts) holds `BLANK_CANVAS_TEMPLATE`
+(the seed template loaded on first run and the target of Reset), `WEDNESDAY_STUDY_TEMPLATE`,
+and `PRESET_TEMPLATES`. The Wednesday Study preset contains real church-newsletter copy —
+treat it as sample content, and don't "clean up" the wording.
+
+The preset `<select>` in [Navbar.tsx](src/components/Navbar.tsx) hardcodes its `<option>`
+list rather than mapping `PRESET_TEMPLATES`; adding or reordering a preset means editing
+both.
 
 ## Project history
 

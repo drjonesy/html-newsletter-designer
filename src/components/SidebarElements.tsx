@@ -22,6 +22,8 @@ interface SidebarElementsProps {
   settings: EmailSettings;
   onUpdateSettings: (newSettings: Partial<EmailSettings>) => void;
   selectedElementCount: number;
+  templateName: string;
+  onRenameTemplate: (name: string) => void;
 }
 
 export const SidebarElements: React.FC<SidebarElementsProps> = ({
@@ -29,6 +31,8 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
   settings,
   onUpdateSettings,
   selectedElementCount,
+  templateName,
+  onRenameTemplate,
 }) => {
   const [activeTab, setActiveTab] = useState<'elements' | 'settings'>('elements');
   const [accentOpen, setAccentOpen] = useState(true);
@@ -108,7 +112,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
           onClick={() => setActiveTab('elements')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold rounded-md transition-all cursor-pointer ${
             activeTab === 'elements'
-              ? 'bg-red-700 text-white shadow-xs'
+              ? 'bg-slate-800 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
           }`}
         >
@@ -119,7 +123,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
           onClick={() => setActiveTab('settings')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold rounded-md transition-all cursor-pointer ${
             activeTab === 'settings'
-              ? 'bg-red-700 text-white shadow-xs'
+              ? 'bg-slate-800 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
           }`}
         >
@@ -187,6 +191,21 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
             </h3>
             <p className="text-[11px] text-slate-500 mb-4">
               Configure overall widths, fonts, and background colors for the output HTML.
+            </p>
+          </div>
+
+          {/* Project name — used for the saved filename and the email's <title> */}
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-700">Newsletter Name</label>
+            <input
+              type="text"
+              value={templateName}
+              onChange={(e) => onRenameTemplate(e.target.value)}
+              placeholder="Untitled Newsletter"
+              className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2 focus:ring-1 focus:ring-red-500 font-semibold"
+            />
+            <p className="text-[10px] text-slate-500">
+              Names the saved project file and the exported HTML.
             </p>
           </div>
 

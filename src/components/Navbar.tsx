@@ -6,12 +6,13 @@ import {
   Code2,
   Copy,
   Download,
-  RotateCcw,
   Upload,
   Plus,
   Check,
-  Sparkles,
   ExternalLink,
+  Save,
+  FolderOpen,
+  FilePlus2,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -25,7 +26,14 @@ interface NavbarProps {
   onCopyHtml: () => void;
   onOpenNewTab: () => void;
   copied: boolean;
-  onReset: () => void;
+  /** Discard the current design and start a fresh blank newsletter. */
+  onNewNewsletter: () => void;
+  /** Save the editable project (blocks + settings) to a local file. */
+  onSaveTemplateFile: () => void;
+  /** Open the file picker to load a saved project file. */
+  onOpenTemplateFile: () => void;
+  /** Name of the project file in play, shown in the template dropdown. */
+  openFileName: string | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -39,11 +47,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onCopyHtml,
   onOpenNewTab,
   copied,
-  onReset,
+  onNewNewsletter,
+  onSaveTemplateFile,
+  onOpenTemplateFile,
+  openFileName,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 text-slate-800 px-4 py-3 sticky top-0 z-40 shadow-xs">
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div className="w-full flex flex-wrap items-center justify-start gap-3">
         {/* App Title & Brand */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-red-700 text-white flex items-center justify-center font-bold shadow-sm">
@@ -72,9 +83,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             onChange={(e) => onSelectPreset(e.target.value)}
             className="bg-slate-50 text-xs font-semibold text-slate-700 border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer shadow-xs hover:border-slate-300"
           >
+            {openFileName && (
+              <option value="__open-file__">📄 {openFileName}</option>
+            )}
+            <option value="blank">Blank Canvas</option>
             <option value="wednesday-study">Wednesday Study (Gmail Email)</option>
             <option value="announcement">General Announcement</option>
-            <option value="blank">Blank Canvas</option>
           </select>
         </div>
 
@@ -137,6 +151,34 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Add Element</span>
           </button>
 
+          {/* Project file: start fresh, save the editable design, reopen it later */}
+          <div className="flex items-center gap-1 pl-1 pr-2 border-r border-slate-200">
+            <button
+              onClick={onNewNewsletter}
+              className="flex items-center gap-1 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+              title="Start a new blank newsletter"
+            >
+              <FilePlus2 className="w-3.5 h-3.5 text-red-700" />
+              <span className="hidden lg:inline">New</span>
+            </button>
+            <button
+              onClick={onSaveTemplateFile}
+              className="flex items-center gap-1 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+              title="Save this newsletter as a project file you can reopen later"
+            >
+              <Save className="w-3.5 h-3.5 text-red-700" />
+              <span className="hidden lg:inline">Save</span>
+            </button>
+            <button
+              onClick={onOpenTemplateFile}
+              className="flex items-center gap-1 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+              title="Open a saved .newsletter.json project file"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-red-700" />
+              <span className="hidden lg:inline">Open</span>
+            </button>
+          </div>
+
           <button
             onClick={onOpenImportModal}
             className="flex items-center gap-1 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
@@ -174,14 +216,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
             <span className="hidden md:inline">Export</span>
-          </button>
-
-          <button
-            onClick={onReset}
-            className="flex items-center gap-1 text-slate-400 hover:text-red-600 p-1.5 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-            title="Reset Template to Original"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

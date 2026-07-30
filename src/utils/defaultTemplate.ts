@@ -3,6 +3,45 @@ import { NewsletterTemplate, EmailElement } from '../types';
 // SVG Data URL for the JH Outback San Diego header logo matching the screenshot
 export const DEFAULT_HEADER_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="468" height="88" viewBox="0 0 468 88"><rect width="100%" height="100%" fill="%231a2b56"/><text x="50%" y="42%" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="28" fill="%23ffffff" text-anchor="middle" letter-spacing="3">JH OUTBACK</text><text x="50%" y="70%" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="16" fill="%23ffffff" text-anchor="middle" letter-spacing="5">SAN DIEGO</text></svg>`;
 
+/** Seed template loaded on first run, and the target of Reset. */
+export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
+  id: 'blank',
+  name: 'Blank Canvas',
+  settings: {
+    width: 600,
+    bgColor: '#f3f4f6',
+    cardBgColor: '#ffffff',
+    fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+    textColor: '#111827',
+    accentColor: '#10b981',
+    padding: 20,
+  },
+  elements: [
+    {
+      id: 'blank-h1',
+      type: 'heading',
+      text: 'Your Newsletter Title',
+      level: 'h1',
+      color: '#111827',
+      fontSize: 24,
+      transform: 'none',
+      letterSpacing: '0px',
+      marginTop: 10,
+      marginBottom: 15,
+    },
+    {
+      id: 'blank-p1',
+      type: 'paragraph',
+      content: 'Start editing or adding elements from the left panel to customize your email newsletter.',
+      color: '#4b5563',
+      fontSize: 16,
+      lineHeight: 1.6,
+      marginTop: 0,
+      marginBottom: 20,
+    },
+  ],
+};
+
 export const WEDNESDAY_STUDY_TEMPLATE: NewsletterTemplate = {
   id: 'wednesday-study',
   name: 'Wednesday Study Newsletter',
@@ -127,6 +166,7 @@ export const WEDNESDAY_STUDY_TEMPLATE: NewsletterTemplate = {
 
 // Preset templates list
 export const PRESET_TEMPLATES: NewsletterTemplate[] = [
+  BLANK_CANVAS_TEMPLATE,
   WEDNESDAY_STUDY_TEMPLATE,
   {
     id: 'announcement',
@@ -200,43 +240,6 @@ export const PRESET_TEMPLATES: NewsletterTemplate[] = [
         alignment: 'center',
         marginTop: 10,
         marginBottom: 10,
-      },
-    ],
-  },
-  {
-    id: 'blank',
-    name: 'Blank Canvas',
-    settings: {
-      width: 600,
-      bgColor: '#f3f4f6',
-      cardBgColor: '#ffffff',
-      fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
-      textColor: '#111827',
-      accentColor: '#10b981',
-      padding: 20,
-    },
-    elements: [
-      {
-        id: 'blank-h1',
-        type: 'heading',
-        text: 'Your Newsletter Title',
-        level: 'h1',
-        color: '#111827',
-        fontSize: 24,
-        transform: 'none',
-        letterSpacing: '0px',
-        marginTop: 10,
-        marginBottom: 15,
-      },
-      {
-        id: 'blank-p1',
-        type: 'paragraph',
-        content: 'Start editing or adding elements from the left panel to customize your email newsletter.',
-        color: '#4b5563',
-        fontSize: 16,
-        lineHeight: 1.6,
-        marginTop: 0,
-        marginBottom: 20,
       },
     ],
   },
