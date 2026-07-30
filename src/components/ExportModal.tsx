@@ -23,7 +23,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   if (!isOpen) return null;
 
   const handleSendTestMail = () => {
-    const subject = encodeURIComponent('Wednesday Study Newsletter Test');
+    const subject = encodeURIComponent('Newsletter Test');
     const body = encodeURIComponent(
       'Here is your rendered newsletter HTML:\n\n' + htmlCode.slice(0, 1500) + '...'
     );

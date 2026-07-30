@@ -1,7 +1,4 @@
-import { NewsletterTemplate, EmailElement } from '../types';
-
-// SVG Data URL for the JH Outback San Diego header logo matching the screenshot
-export const DEFAULT_HEADER_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="468" height="88" viewBox="0 0 468 88"><rect width="100%" height="100%" fill="%231a2b56"/><text x="50%" y="42%" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="28" fill="%23ffffff" text-anchor="middle" letter-spacing="3">JH OUTBACK</text><text x="50%" y="70%" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="16" fill="%23ffffff" text-anchor="middle" letter-spacing="5">SAN DIEGO</text></svg>`;
+import { NewsletterTemplate } from '../types';
 
 /** Seed template loaded on first run, and the target of Reset. */
 export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
@@ -42,132 +39,9 @@ export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
   ],
 };
 
-export const WEDNESDAY_STUDY_TEMPLATE: NewsletterTemplate = {
-  id: 'wednesday-study',
-  name: 'Wednesday Study Newsletter',
-  settings: {
-    width: 600,
-    bgColor: '#f4f5f8',
-    cardBgColor: '#ffffff',
-    fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
-    textColor: '#1a2b56',
-    accentColor: '#b22222',
-    padding: 20,
-  },
-  elements: [
-    {
-      id: 'header-1',
-      type: 'header-image',
-      src: DEFAULT_HEADER_LOGO,
-      alt: 'JH Outback San Diego',
-      width: 468,
-      height: 88,
-      alignment: 'left',
-      paddingTop: 10,
-      paddingBottom: 20,
-    },
-    {
-      id: 'accent-1',
-      type: 'accent-section',
-      borderColor: '#b22222',
-      borderWidth: 5,
-      paddingLeft: 20,
-      marginBottom: 30,
-      childElements: [
-        {
-          id: 'heading-1',
-          type: 'heading',
-          text: 'Wednesday Study',
-          level: 'h2',
-          color: '#1a2b56',
-          fontSize: 24,
-          transform: 'uppercase',
-          letterSpacing: '1px',
-          marginTop: 0,
-          marginBottom: 15,
-        },
-        {
-          id: 'kv-1',
-          type: 'key-value',
-          label: 'Date & Time:',
-          value: 'July 29th @ 6:30 PM',
-          labelColor: '#1a2b56',
-          valueColor: '#1a2b56',
-          fontSize: 18,
-          boldLabel: true,
-          marginTop: 5,
-          marginBottom: 15,
-        },
-        {
-          id: 'para-1',
-          type: 'paragraph',
-          content:
-            '<b>New Series: <font color="#990000">New Life Freedom</font></b> (Week 1)<br><span style="font-size:15px;color:#333333;display:inline-block;margin-top:8px;">We might present the appearance that everything is fine in our lives, but this is only the surface, like the visible part of an iceberg. Underneath there are all of the hurts and false beliefs we have tried to ignore. Rather than going to God for help in dealing with the pain, we use coping strategies to comfort, distract and protect ourselves – strategies that come from our attempts to control our lives and maintain a good image. Jer. 6:14 – “You can’t heal a wound by saying it’s not there.” <b>Jer. 6:14, Heb. 13:6, 1 John 4:18, 2 Peter 2:19, Prov. 14:12</b></span>',
-          color: '#1a2b56',
-          fontSize: 18,
-          lineHeight: 1.6,
-          marginTop: 10,
-          marginBottom: 25,
-        },
-        {
-          id: 'heading-2',
-          type: 'heading',
-          text: 'Read and Be Prepared',
-          level: 'h3',
-          color: '#1a2b56',
-          fontSize: 20,
-          transform: 'none',
-          letterSpacing: '0px',
-          marginTop: 20,
-          marginBottom: 10,
-        },
-        {
-          id: 'para-2',
-          type: 'paragraph',
-          content:
-            'We are pivoting to a new series. Please click the button below and read the first page. The second page is just lined paper. But it also contains the discussion questions we will use at the bottom.',
-          color: '#333333',
-          fontSize: 15,
-          lineHeight: 1.6,
-          marginTop: 5,
-          marginBottom: 20,
-        },
-        {
-          id: 'para-location',
-          type: 'paragraph',
-          content:
-            '<strong>Location:</strong> Above the Offices<br>Faith Chapel Community Church, Spring Valley<br><span style="color:#555555;font-size:15px">(Look for the JESUS poster)</span>',
-          color: '#1a2b56',
-          fontSize: 18,
-          lineHeight: 1.6,
-          marginTop: 15,
-          marginBottom: 20,
-        },
-        {
-          id: 'btn-1',
-          type: 'button',
-          text: 'Week 1 - Read & Print out',
-          url: 'https://storage2.snappages.site/95D3JW/assets/files/Freedom-Workbook-Lesson-01.pdf',
-          bgColor: '#b22222',
-          textColor: '#ffffff',
-          fontSize: 16,
-          fontWeight: 'bold',
-          borderRadius: 5,
-          paddingVertical: 14,
-          paddingHorizontal: 25,
-          alignment: 'left',
-          marginTop: 10,
-          marginBottom: 10,
-        },
-      ],
-    },
-  ],
-};
-
 // Preset templates list
 export const PRESET_TEMPLATES: NewsletterTemplate[] = [
   BLANK_CANVAS_TEMPLATE,
-  WEDNESDAY_STUDY_TEMPLATE,
   {
     id: 'announcement',
     name: 'General Announcement',

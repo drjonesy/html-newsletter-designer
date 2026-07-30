@@ -2,6 +2,7 @@ export type ElementType =
   | 'header-image'
   | 'heading'
   | 'accent-section'
+  | 'section'
   | 'key-value'
   | 'paragraph'
   | 'button'
@@ -98,6 +99,35 @@ export interface AccentSectionElement extends BaseElement {
   childElements: EmailElement[];
 }
 
+/**
+ * General-purpose container: a box with independently controlled borders and
+ * padding on each side, holding any other blocks.
+ *
+ * Each side's border is switched on by giving it a non-zero width, so a single
+ * type covers a full outline, a single rule under a group of blocks, or a left
+ * accent bar. Sides at width 0 emit no `border-*` declaration at all.
+ */
+export interface SectionElement extends BaseElement {
+  type: 'section';
+  /** `'transparent'` leaves the email card's own background showing. */
+  bgColor: string;
+  borderColor: string;
+  borderStyle: 'solid' | 'dashed' | 'dotted';
+  borderTopWidth: number;
+  borderRightWidth: number;
+  borderBottomWidth: number;
+  borderLeftWidth: number;
+  /** Ignored by Outlook's Word engine; harmless everywhere else. */
+  borderRadius: number;
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  marginTop: number;
+  marginBottom: number;
+  childElements: EmailElement[];
+}
+
 export interface DividerElement extends BaseElement {
   type: 'divider';
   color: string;
@@ -141,9 +171,18 @@ export type EmailElement =
   | ParagraphElement
   | ButtonElement
   | AccentSectionElement
+  | SectionElement
   | DividerElement
   | QuoteElement
   | CustomHtmlElement;
+
+/**
+ * The block types that hold `childElements`. Anything that walks the element
+ * tree must recurse through these — use `isContainerElement` from
+ * `utils/elementHelpers` rather than testing `type` by hand, so adding another
+ * container later doesn't mean re-auditing every traversal.
+ */
+export type ContainerElement = AccentSectionElement | SectionElement;
 
 export interface EmailSettings {
   width: number; // default 600

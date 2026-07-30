@@ -87,7 +87,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <option value="__open-file__">📄 {openFileName}</option>
             )}
             <option value="blank">Blank Canvas</option>
-            <option value="wednesday-study">Wednesday Study (Gmail Email)</option>
             <option value="announcement">General Announcement</option>
           </select>
         </div>

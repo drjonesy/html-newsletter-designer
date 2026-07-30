@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Palette,
+  Square,
+  CornerDownRight,
 } from 'lucide-react';
 
 interface SidebarElementsProps {
@@ -24,6 +26,12 @@ interface SidebarElementsProps {
   selectedElementCount: number;
   templateName: string;
   onRenameTemplate: (name: string) => void;
+  /**
+   * Name of the section new blocks will drop into, or null for the end of the
+   * email. Set whenever a container — or something inside one — is selected.
+   */
+  addTargetLabel?: string | null;
+  onClearAddTarget?: () => void;
 }
 
 export const SidebarElements: React.FC<SidebarElementsProps> = ({
@@ -33,11 +41,21 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
   selectedElementCount,
   templateName,
   onRenameTemplate,
+  addTargetLabel,
+  onClearAddTarget,
 }) => {
   const [activeTab, setActiveTab] = useState<'elements' | 'settings'>('elements');
   const [accentOpen, setAccentOpen] = useState(true);
 
   const elementCategories = [
+    {
+      type: 'section' as ElementType,
+      title: 'Section',
+      desc: 'Box with per-side borders and padding that holds other blocks',
+      icon: Square,
+      color: 'bg-slate-100 text-slate-700 border-slate-200',
+      badge: 'Container',
+    },
     {
       type: 'accent-section' as ElementType,
       title: 'Red Accent Block',
@@ -107,7 +125,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
   return (
     <aside className="w-full lg:w-80 bg-white border-r border-slate-200 flex flex-col h-full text-slate-800">
       {/* Sidebar Header Tabs */}
-      <div className="flex border-b border-slate-200 bg-slate-50 p-1.5">
+      <div className="flex border-b border-slate-200 bg-slate-50 p-1.5 pt-4">
         <button
           onClick={() => setActiveTab('elements')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold rounded-md transition-all cursor-pointer ${
@@ -143,6 +161,31 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
               Click any element below to insert it into your newsletter template.
             </p>
           </div>
+
+          {/* Where the next click will drop the block */}
+          {addTargetLabel && (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-900">
+              <CornerDownRight className="w-3.5 h-3.5 text-red-700 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold truncate">
+                  Adding into “{addTargetLabel}”
+                </p>
+                <p className="text-[10px] text-red-800/80">
+                  New blocks go inside this section.
+                </p>
+              </div>
+              {onClearAddTarget && (
+                <button
+                  type="button"
+                  onClick={onClearAddTarget}
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-200 bg-white/70 hover:bg-white text-red-800 shrink-0 cursor-pointer"
+                  title="Deselect so new blocks go at the end of the email"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             {elementCategories.map((item) => {

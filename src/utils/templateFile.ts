@@ -1,5 +1,5 @@
 import { ElementType, EmailElement, EmailSettings, NewsletterTemplate } from '../types';
-import { createNewElement } from './elementHelpers';
+import { createNewElement, isContainerElement } from './elementHelpers';
 import { BLANK_CANVAS_TEMPLATE } from './defaultTemplate';
 
 /**
@@ -33,6 +33,7 @@ const ELEMENT_TYPES = new Set<string>([
   'header-image',
   'heading',
   'accent-section',
+  'section',
   'key-value',
   'paragraph',
   'button',
@@ -54,7 +55,7 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
-/** `Wednesday Study Newsletter` -> `wednesday-study-newsletter.newsletter.json` */
+/** `Monthly Update Newsletter` -> `monthly-update-newsletter.newsletter.json` */
 export function suggestTemplateFileName(template: NewsletterTemplate): string {
   return `${slugify(template.name) || 'newsletter'}${TEMPLATE_FILE_EXTENSION}`;
 }
@@ -112,7 +113,7 @@ function normalizeElement(
     id: uniqueId(raw.id, seen),
   } as unknown as EmailElement;
 
-  if (element.type === 'accent-section') {
+  if (isContainerElement(element)) {
     // Normalize nested blocks too, and don't let the defaults' sample children
     // sneak in when the file's section is genuinely empty.
     element.childElements = Array.isArray(raw.childElements)

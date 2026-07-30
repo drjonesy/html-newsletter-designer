@@ -93,11 +93,27 @@ text in `editableField(value, 'fieldName', opts)` in its generator case and add 
 
 ### Nesting
 
-`accent-section` is the only container type — it holds `childElements: EmailElement[]`,
-one level deep. Anything that walks the tree must recurse into it. `App.tsx` already has
-recursive helpers (`findElementById`, and the local `updateList` / `deleteFromList` /
-`moveInList` closures inside each handler); follow that pattern rather than assuming a
-flat array.
+Two block types hold `childElements: EmailElement[]`: `section` (the general-purpose box,
+with per-side borders and padding) and `accent-section` (the fixed left-rule callout).
+They nest arbitrarily deep — a section can contain a section.
+
+Never test `el.type === 'section'` to decide whether to recurse. Use
+`isContainerElement(el)` from [src/utils/elementHelpers.ts](src/utils/elementHelpers.ts),
+which narrows to `ContainerElement` — that way another container type only has to be added
+to the `ContainerElement` union in [src/types.ts](src/types.ts), not chased through every
+traversal. `App.tsx` already has recursive helpers built on it (`findElementById`,
+`findContainerFor`, and the local `updateList` / `deleteFromList` / `moveInList` closures
+inside each handler); follow that pattern rather than assuming a flat array.
+
+Two consequences worth remembering when writing traversals:
+
+- Anything that copies a subtree must re-id every descendant, not just the root —
+  `handleDuplicateElement`'s `reidDeep` does this. Duplicate ids in the tree make
+  selection and updates hit both copies.
+- The canvas is the only place a container's own frame is drawn in React rather than by
+  the generator (its children have to stay individually clickable). `containerPreviewStyle`
+  in `VisualCanvas.tsx` mirrors what `renderElementToHtml` emits for the frame — change one
+  and change the other.
 
 ### Rendering: one generator, two consumers
 
@@ -135,6 +151,34 @@ add editor chrome to the default (export) branch.
 - Read plain fields with `textContent`, never `innerText` — `innerText` returns the
   *rendered* text, so a heading with `text-transform:uppercase` would save back SHOUTING.
 
+### Drag to reorder
+
+Blocks reorder by dragging the grip on the hover badge. The wrapper is only
+`draggable` while that grip is held (`armedId` in `VisualCanvas`) — a permanently
+draggable wrapper would block text selection during inline editing, and a stray `<img>`
+drag inside the generated HTML would start a phantom reorder.
+
+Drops resolve through `handleReorderElement` in `App.tsx`, which removes the block from
+wherever it lives and re-inserts it `'before'` / `'after'` the target, or — for a container
+target — `'inside'` it as the last child. Source and target can be in different lists, so
+this also moves blocks into and out of sections; the one guard is that a container can't be
+dropped into its own subtree.
+
+`VisualCanvas` picks the position in `dragProps`'s `onDragOver`: plain blocks split
+top-half/bottom-half, containers reserve a ~14px strip at each edge for before/after and
+treat the rest as `'inside'`. Children stop `dragover` bubbling, so a container only sees
+events over its own padding. An empty container renders a dashed placeholder — without it
+there'd be nothing to aim at.
+
+### Adding blocks into sections
+
+`handleAddElement` is container-aware: `addTarget` (in `App.tsx`) resolves the selected
+block to the section it is or sits in, and the new block is appended there instead of at
+the end of the email. `SidebarElements` shows an "Adding into …" banner with a Clear button
+whenever that's in effect. This makes "keep everything in sections" the path of least
+resistance without making it mandatory — top-level blocks remain valid, and every existing
+saved template still loads.
+
 ### The Inspector's HTML tab
 
 `InspectorPanel` has Design and HTML tabs; `App.tsx` owns which is active so the `</>`
@@ -170,9 +214,8 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | [ExportModal.tsx](src/components/ExportModal.tsx) | Copy / download / open-in-new-tab |
 
 [src/utils/defaultTemplate.ts](src/utils/defaultTemplate.ts) holds `BLANK_CANVAS_TEMPLATE`
-(the seed template loaded on first run and the target of Reset), `WEDNESDAY_STUDY_TEMPLATE`,
-and `PRESET_TEMPLATES`. The Wednesday Study preset contains real church-newsletter copy —
-treat it as sample content, and don't "clean up" the wording.
+(the seed template loaded on first run and the target of Reset) and `PRESET_TEMPLATES`
+(currently Blank Canvas and General Announcement).
 
 The preset `<select>` in [Navbar.tsx](src/components/Navbar.tsx) hardcodes its `<option>`
 list rather than mapping `PRESET_TEMPLATES`; adding or reordering a preset means editing

@@ -4,14 +4,13 @@ import {
   EmailElement,
   ElementType,
   EmailSettings,
-  AccentSectionElement,
 } from './types';
 import {
   BLANK_CANVAS_TEMPLATE,
   PRESET_TEMPLATES,
 } from './utils/defaultTemplate';
 import { generateEmailHtml } from './utils/htmlGenerator';
-import { createNewElement } from './utils/elementHelpers';
+import { createNewElement, isContainerElement } from './utils/elementHelpers';
 import {
   parseTemplateFile,
   serializeTemplateFile,
@@ -110,7 +109,7 @@ export default function App() {
   ): EmailElement | null => {
     for (const el of elements) {
       if (el.id === id) return el;
-      if (el.type === 'accent-section' && el.childElements) {
+      if (isContainerElement(el) && el.childElements) {
         const foundChild = findElementById(el.childElements, id);
         if (foundChild) return foundChild;
       }
@@ -122,6 +121,32 @@ export default function App() {
     if (!selectedElementId) return null;
     return findElementById(template.elements, selectedElementId);
   }, [template, selectedElementId]);
+
+  /**
+   * Which container a newly added block should land in: the selected container
+   * itself, or the one holding the selected block. Null means top level.
+   *
+   * This is what makes "build everything inside sections" the natural flow
+   * without forcing it — select a section, and the palette fills it.
+   */
+  const findContainerFor = (
+    elements: EmailElement[],
+    id: string
+  ): EmailElement | null => {
+    for (const el of elements) {
+      if (!isContainerElement(el)) continue;
+      if ((el.childElements || []).some((child) => child.id === id)) return el;
+      const nested = findContainerFor(el.childElements || [], id);
+      if (nested) return nested;
+    }
+    return null;
+  };
+
+  const addTarget = useMemo(() => {
+    if (!selectedElement || !selectedElementId) return null;
+    if (isContainerElement(selectedElement)) return selectedElement;
+    return findContainerFor(template.elements, selectedElementId);
+  }, [template, selectedElement, selectedElementId]);
 
   // Preset Selector
   const handleSelectPreset = (presetId: string) => {
@@ -155,7 +180,7 @@ export default function App() {
       `el-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const reid = (elements: EmailElement[]): EmailElement[] =>
       elements.map((el) =>
-        el.type === 'accent-section' && el.childElements
+        isContainerElement(el) && el.childElements
           ? { ...el, id: freshId(), childElements: reid(el.childElements) }
           : { ...el, id: freshId() }
       );
@@ -173,35 +198,23 @@ export default function App() {
     setNotice(null);
   };
 
-  // Add Element
-  const handleAddElement = (type: ElementType) => {
-    const newEl = createNewElement(type);
-    setTemplate((prev) => ({
-      ...prev,
-      elements: [...prev.elements, newEl],
-    }));
-    setSelectedElementId(newEl.id);
-  };
-
-  // Add Child Element inside Accent Section
-  const handleAddChildToAccent = (parentId: string, type: ElementType) => {
+  // Add Child Element inside a container (Section / Accent Section)
+  const handleAddChildToContainer = (parentId: string, type: ElementType) => {
     const newChild = createNewElement(type);
     setTemplate((prev) => {
       const updateList = (elements: EmailElement[]): EmailElement[] => {
         return elements.map((el) => {
-          if (el.id === parentId && el.type === 'accent-section') {
+          if (!isContainerElement(el)) return el;
+          if (el.id === parentId) {
             return {
               ...el,
               childElements: [...(el.childElements || []), newChild],
             };
           }
-          if (el.type === 'accent-section' && el.childElements) {
-            return {
-              ...el,
-              childElements: updateList(el.childElements),
-            };
-          }
-          return el;
+          return {
+            ...el,
+            childElements: updateList(el.childElements || []),
+          };
         });
       };
       return {
@@ -212,6 +225,24 @@ export default function App() {
     setSelectedElementId(newChild.id);
   };
 
+  /**
+   * Add a block. With a section selected (or a block inside one) the new block
+   * lands in that section rather than at the end of the email — the palette
+   * always fills whatever you're working in.
+   */
+  const handleAddElement = (type: ElementType) => {
+    if (addTarget) {
+      handleAddChildToContainer(addTarget.id, type);
+      return;
+    }
+    const newEl = createNewElement(type);
+    setTemplate((prev) => ({
+      ...prev,
+      elements: [...prev.elements, newEl],
+    }));
+    setSelectedElementId(newEl.id);
+  };
+
   // Update Element
   const handleUpdateElement = (updatedEl: EmailElement) => {
     setTemplate((prev) => {
@@ -220,7 +251,7 @@ export default function App() {
           if (el.id === updatedEl.id) {
             return updatedEl;
           }
-          if (el.type === 'accent-section' && el.childElements) {
+          if (isContainerElement(el) && el.childElements) {
             return {
               ...el,
               childElements: updateList(el.childElements),
@@ -243,7 +274,7 @@ export default function App() {
         return elements
           .filter((el) => el.id !== id)
           .map((el) => {
-            if (el.type === 'accent-section' && el.childElements) {
+            if (isContainerElement(el) && el.childElements) {
               return {
                 ...el,
                 childElements: deleteFromList(el.childElements),
@@ -264,17 +295,32 @@ export default function App() {
 
   // Duplicate Element
   const handleDuplicateElement = (id: string) => {
+    // Every block in the copy needs a fresh id, children included — duplicate
+    // ids in the tree would make selection and updates hit both copies.
+    const reidDeep = (el: EmailElement): EmailElement => {
+      const fresh = {
+        ...el,
+        id: `el-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      };
+      return isContainerElement(fresh)
+        ? { ...fresh, childElements: (fresh.childElements || []).map(reidDeep) }
+        : fresh;
+    };
+
     setTemplate((prev) => {
       const duplicateInList = (elements: EmailElement[]): EmailElement[] => {
         const result: EmailElement[] = [];
         for (const el of elements) {
+          if (el.id !== id && isContainerElement(el) && el.childElements) {
+            result.push({
+              ...el,
+              childElements: duplicateInList(el.childElements),
+            });
+            continue;
+          }
           result.push(el);
           if (el.id === id) {
-            const cloned = JSON.parse(JSON.stringify(el));
-            cloned.id = `el-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-            result.push(cloned);
-          } else if (el.type === 'accent-section' && el.childElements) {
-            el.childElements = duplicateInList(el.childElements);
+            result.push(reidDeep(JSON.parse(JSON.stringify(el))));
           }
         }
         return result;
@@ -299,7 +345,7 @@ export default function App() {
           return newArr;
         }
         return elements.map((el) => {
-          if (el.type === 'accent-section' && el.childElements) {
+          if (isContainerElement(el) && el.childElements) {
             return {
               ...el,
               childElements: moveInList(el.childElements),
@@ -328,7 +374,7 @@ export default function App() {
           return newArr;
         }
         return elements.map((el) => {
-          if (el.type === 'accent-section' && el.childElements) {
+          if (isContainerElement(el) && el.childElements) {
             return {
               ...el,
               childElements: moveInList(el.childElements),
@@ -340,6 +386,67 @@ export default function App() {
       return {
         ...prev,
         elements: moveInList(prev.elements),
+      };
+    });
+  };
+
+  /**
+   * Drag-and-drop reorder: pull `dragId` out of wherever it lives and drop it
+   * before/after `targetId`, or — with `position: 'inside'` — append it as the
+   * last child of `targetId`. Because the target may sit in a different list
+   * than the source, this doubles as "move in/out of a section"; the only guard
+   * is that a container can't be dropped inside its own subtree, which would
+   * detach it from the tree entirely.
+   */
+  const handleReorderElement = (
+    dragId: string,
+    targetId: string,
+    position: 'before' | 'after' | 'inside'
+  ) => {
+    if (dragId === targetId) return;
+
+    setTemplate((prev) => {
+      const dragged = findElementById(prev.elements, dragId);
+      const target = findElementById(prev.elements, targetId);
+      if (!dragged || !target) return prev;
+      if (findElementById([dragged], targetId)) return prev;
+
+      // Dropping "inside" something that can't hold children lands after it.
+      const resolved =
+        position === 'inside' && !isContainerElement(target) ? 'after' : position;
+
+      const removeFromList = (elements: EmailElement[]): EmailElement[] =>
+        elements
+          .filter((el) => el.id !== dragId)
+          .map((el) =>
+            isContainerElement(el) && el.childElements
+              ? { ...el, childElements: removeFromList(el.childElements) }
+              : el
+          );
+
+      const insertIntoList = (elements: EmailElement[]): EmailElement[] => {
+        const result: EmailElement[] = [];
+        for (const el of elements) {
+          let next: EmailElement =
+            isContainerElement(el) && el.childElements
+              ? { ...el, childElements: insertIntoList(el.childElements) }
+              : el;
+          if (el.id === targetId && resolved === 'inside' && isContainerElement(next)) {
+            next = {
+              ...next,
+              childElements: [...(next.childElements || []), dragged],
+            };
+          }
+          if (el.id === targetId && resolved === 'before') result.push(dragged);
+          result.push(next);
+          if (el.id === targetId && resolved === 'after') result.push(dragged);
+        }
+        return result;
+      };
+
+      return {
+        ...prev,
+        elements: insertIntoList(removeFromList(prev.elements)),
       };
     });
   };
@@ -538,6 +645,14 @@ export default function App() {
             selectedElementCount={template.elements.length}
             templateName={template.name}
             onRenameTemplate={handleRenameTemplate}
+            addTargetLabel={
+              addTarget
+                ? addTarget.type === 'section'
+                  ? addTarget.label || 'Section'
+                  : 'Red Accent Block'
+                : null
+            }
+            onClearAddTarget={() => handleSelectElement(null)}
           />
         )}
 
@@ -559,6 +674,7 @@ export default function App() {
             onDuplicateElement={handleDuplicateElement}
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
+            onReorderElement={handleReorderElement}
             viewMode={viewMode}
             onOpenNewTab={handleOpenNewTab}
             onViewElementHtml={handleViewElementHtml}
@@ -575,7 +691,7 @@ export default function App() {
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
             onClose={() => handleSelectElement(null)}
-            onAddChildToAccent={handleAddChildToAccent}
+            onAddChildToContainer={handleAddChildToContainer}
             fontFamily={template.settings.fontFamily}
             activeTab={inspectorTab}
             onChangeTab={setInspectorTab}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { EmailElement, ElementType } from '../types';
+import { EmailElement, ElementType, SectionElement } from '../types';
 import { renderElementToHtml } from '../utils/htmlGenerator';
+import { isContainerElement } from '../utils/elementHelpers';
 import {
   X,
   ChevronUp,
@@ -17,6 +18,9 @@ import {
   Undo2,
   RotateCcw,
   Check,
+  Square,
+  Link2,
+  Link2Off,
 } from 'lucide-react';
 
 export type InspectorTab = 'design' | 'html';
@@ -205,7 +209,7 @@ const ElementHtmlEditor: React.FC<ElementHtmlEditorProps> = ({
           <p className="text-[11px] leading-relaxed">
             This {typeLabel(element.type)} block becomes a raw HTML block holding
             your code. Its design controls stop applying
-            {element.type === 'accent-section'
+            {isContainerElement(element)
               ? ', and its child elements are flattened into this markup'
               : ''}
             . You can revert afterwards.
@@ -257,6 +261,422 @@ const ElementHtmlEditor: React.FC<ElementHtmlEditorProps> = ({
   );
 };
 
+const SIDES = ['top', 'right', 'bottom', 'left'] as const;
+type Side = (typeof SIDES)[number];
+type BoxValues = Record<Side, number>;
+
+interface BoxSideInputsProps {
+  label: string;
+  hint?: string;
+  values: BoxValues;
+  onChange: (values: BoxValues) => void;
+}
+
+/**
+ * Four per-side number inputs (top / right / bottom / left) with a link toggle
+ * that drives all four together. Starts linked when the sides already match, so
+ * the common "same all round" case stays one field to edit.
+ */
+const BoxSideInputs: React.FC<BoxSideInputsProps> = ({
+  label,
+  hint,
+  values,
+  onChange,
+}) => {
+  const [linked, setLinked] = useState(() =>
+    SIDES.every((side) => values[side] === values.top)
+  );
+
+  const set = (side: Side, raw: string) => {
+    const next = Math.max(0, Number(raw) || 0);
+    onChange(
+      linked
+        ? { top: next, right: next, bottom: next, left: next }
+        : { ...values, [side]: next }
+    );
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-semibold text-slate-700">{label}</label>
+        <button
+          type="button"
+          aria-pressed={linked}
+          onClick={() => {
+            // Linking up adopts the top value so the four don't disagree.
+            if (!linked) {
+              onChange({
+                top: values.top,
+                right: values.top,
+                bottom: values.top,
+                left: values.top,
+              });
+            }
+            setLinked(!linked);
+          }}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold transition-colors ${
+            linked
+              ? 'bg-red-700 border-red-700 text-white'
+              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-200'
+          }`}
+          title={linked ? 'Editing all four sides together' : 'Editing each side separately'}
+        >
+          {linked ? (
+            <Link2 className="w-3 h-3" />
+          ) : (
+            <Link2Off className="w-3 h-3" />
+          )}
+          {linked ? 'All sides' : 'Per side'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5">
+        {SIDES.map((side) => (
+          <div key={side} className="space-y-0.5">
+            <label className="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold text-center">
+              {side.charAt(0)}
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={values[side]}
+              onChange={(e) => set(side, e.target.value)}
+              className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-1.5 text-center focus:ring-1 focus:ring-red-500"
+            />
+          </div>
+        ))}
+      </div>
+
+      {hint && <p className="text-[10px] text-slate-500">{hint}</p>}
+    </div>
+  );
+};
+
+/** One-click border layouts, since "just a left rule" is the common case. */
+const BORDER_PRESETS: { label: string; sides: Side[] }[] = [
+  { label: 'All', sides: ['top', 'right', 'bottom', 'left'] },
+  { label: 'None', sides: [] },
+  { label: 'Left', sides: ['left'] },
+  { label: 'Right', sides: ['right'] },
+  { label: 'Top', sides: ['top'] },
+  { label: 'Bottom', sides: ['bottom'] },
+];
+
+interface AddChildButtonsProps {
+  parentId: string;
+  onAddChild: (parentId: string, type: ElementType) => void;
+  title: string;
+}
+
+const AddChildButtons: React.FC<AddChildButtonsProps> = ({
+  parentId,
+  onAddChild,
+  title,
+}) => {
+  const items: { type: ElementType; label: string }[] = [
+    { type: 'heading', label: '+ Heading' },
+    { type: 'paragraph', label: '+ Text Copy' },
+    { type: 'key-value', label: '+ Date / Info' },
+    { type: 'button', label: '+ CTA Button' },
+    { type: 'header-image', label: '+ Image' },
+    { type: 'quote', label: '+ Quote Box' },
+    { type: 'divider', label: '+ Divider' },
+    { type: 'section', label: '+ Section' },
+  ];
+
+  return (
+    <div className="pt-2 border-t border-slate-200 space-y-2">
+      <label className="font-semibold text-slate-700 block">{title}</label>
+      <div className="grid grid-cols-2 gap-1.5">
+        {items.map((item) => (
+          <button
+            key={item.type}
+            type="button"
+            onClick={() => onAddChild(parentId, item.type)}
+            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-slate-500">
+        Blocks can also be dragged in and out of this section on the canvas.
+      </p>
+    </div>
+  );
+};
+
+interface SectionEditorProps {
+  element: SectionElement;
+  onUpdateElement: (updated: EmailElement) => void;
+  onAddChild?: (parentId: string, type: ElementType) => void;
+}
+
+const SectionEditor: React.FC<SectionEditorProps> = ({
+  element,
+  onUpdateElement,
+  onAddChild,
+}) => {
+  const hasBg = element.bgColor !== 'transparent';
+
+  const borderWidths: BoxValues = {
+    top: element.borderTopWidth,
+    right: element.borderRightWidth,
+    bottom: element.borderBottomWidth,
+    left: element.borderLeftWidth,
+  };
+
+  const padding: BoxValues = {
+    top: element.paddingTop,
+    right: element.paddingRight,
+    bottom: element.paddingBottom,
+    left: element.paddingLeft,
+  };
+
+  const setBorderWidths = (values: BoxValues) =>
+    onUpdateElement({
+      ...element,
+      borderTopWidth: values.top,
+      borderRightWidth: values.right,
+      borderBottomWidth: values.bottom,
+      borderLeftWidth: values.left,
+    });
+
+  const applyPreset = (sides: Side[]) => {
+    // Reuse whatever weight is already in play so a preset changes which sides
+    // show, not how heavy they are.
+    const weight = Math.max(1, ...SIDES.map((side) => borderWidths[side]));
+    setBorderWidths({
+      top: sides.includes('top') ? weight : 0,
+      right: sides.includes('right') ? weight : 0,
+      bottom: sides.includes('bottom') ? weight : 0,
+      left: sides.includes('left') ? weight : 0,
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">
+        <p className="font-bold mb-1 flex items-center gap-1.5 text-slate-800">
+          <Square className="w-3.5 h-3.5 text-red-700" />
+          Section Container
+        </p>
+        <p className="text-[11px] leading-relaxed">
+          A box that holds other blocks. Give each side its own border weight —
+          set a side to 0 to hide it — and its own padding.
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <label className="font-semibold text-slate-700">Section Name</label>
+        <input
+          type="text"
+          value={element.label || ''}
+          onChange={(e) => onUpdateElement({ ...element, label: e.target.value })}
+          placeholder="Section"
+          className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2 focus:ring-1 focus:ring-red-500 font-semibold"
+        />
+        <p className="text-[10px] text-slate-500">
+          Labels this block on the canvas only — it isn't exported.
+        </p>
+      </div>
+
+      {/* Which sides show a border */}
+      <div className="space-y-1.5">
+        <label className="font-semibold text-slate-700 block">Show Borders On</label>
+        <div className="grid grid-cols-3 gap-1.5">
+          {BORDER_PRESETS.map((preset) => {
+            const active = SIDES.every(
+              (side) => borderWidths[side] > 0 === preset.sides.includes(side)
+            );
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => applyPreset(preset.sides)}
+                aria-pressed={active}
+                className={`px-2 py-1.5 rounded border text-[11px] font-semibold transition-colors ${
+                  active
+                    ? 'bg-red-700 border-red-700 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <BoxSideInputs
+        label="Border Width (px)"
+        hint="0 hides that side entirely."
+        values={borderWidths}
+        onChange={setBorderWidths}
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Border Style</label>
+          <select
+            value={element.borderStyle}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                borderStyle: e.target.value as SectionElement['borderStyle'],
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          >
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Corner Radius (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.borderRadius}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                borderRadius: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="font-semibold text-slate-700 flex justify-between">
+          <span>Border Color</span>
+          <span className="font-mono text-slate-500">{element.borderColor}</span>
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={element.borderColor}
+            onChange={(e) =>
+              onUpdateElement({ ...element, borderColor: e.target.value })
+            }
+            className="w-8 h-8 rounded border-0 bg-transparent cursor-pointer"
+          />
+          <button
+            type="button"
+            onClick={() => onUpdateElement({ ...element, borderColor: '#b22222' })}
+            className="text-[10px] px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-slate-700 font-semibold"
+          >
+            Gmail Red
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdateElement({ ...element, borderColor: '#cbd5e1' })}
+            className="text-[10px] px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-slate-700 font-semibold"
+          >
+            Light Grey
+          </button>
+        </div>
+      </div>
+
+      <BoxSideInputs
+        label="Padding (px)"
+        hint="Space between the border and the blocks inside."
+        values={padding}
+        onChange={(values) =>
+          onUpdateElement({
+            ...element,
+            paddingTop: values.top,
+            paddingRight: values.right,
+            paddingBottom: values.bottom,
+            paddingLeft: values.left,
+          })
+        }
+      />
+
+      {/* Background fill — a colour input can't express "no fill", so it's a toggle */}
+      <div className="space-y-1">
+        <label className="font-semibold text-slate-700 flex justify-between items-center">
+          <span>Background Fill</span>
+          <span className="font-mono text-slate-500">
+            {hasBg ? element.bgColor : 'none'}
+          </span>
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            disabled={!hasBg}
+            value={hasBg ? element.bgColor : '#f8fafc'}
+            onChange={(e) => onUpdateElement({ ...element, bgColor: e.target.value })}
+            className="w-8 h-8 rounded border-0 bg-transparent cursor-pointer disabled:opacity-40"
+          />
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateElement({
+                ...element,
+                bgColor: hasBg ? 'transparent' : '#f8fafc',
+              })
+            }
+            className={`text-[10px] px-2 py-1 rounded border font-semibold transition-colors ${
+              hasBg
+                ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                : 'bg-red-700 border-red-700 text-white'
+            }`}
+          >
+            {hasBg ? 'Remove fill' : 'No fill'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Space Above (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.marginTop}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                marginTop: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Space Below (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.marginBottom}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                marginBottom: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+      </div>
+
+      {onAddChild && (
+        <AddChildButtons
+          parentId={element.id}
+          onAddChild={onAddChild}
+          title="Add Block Inside This Section:"
+        />
+      )}
+    </div>
+  );
+};
+
 interface InspectorPanelProps {
   element: EmailElement | null;
   onUpdateElement: (updated: EmailElement) => void;
@@ -265,7 +685,7 @@ interface InspectorPanelProps {
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
   onClose: () => void;
-  onAddChildToAccent?: (parentId: string, type: ElementType) => void;
+  onAddChildToContainer?: (parentId: string, type: ElementType) => void;
   /** Font stack used to generate this element's HTML in the HTML tab. */
   fontFamily: string;
   activeTab: InspectorTab;
@@ -280,7 +700,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onMoveUp,
   onMoveDown,
   onClose,
-  onAddChildToAccent,
+  onAddChildToContainer,
   fontFamily,
   activeTab,
   onChangeTab,
@@ -572,7 +992,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 }
                 className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
               >
-                <option value="uppercase">UPPERCASE (e.g. WEDNESDAY STUDY)</option>
+                <option value="uppercase">UPPERCASE (e.g. HEADLINE TEXT)</option>
                 <option value="capitalize">Capitalize Words</option>
                 <option value="none">Normal Case</option>
               </select>
@@ -917,44 +1337,24 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
 
             {/* Quick Add nested element into this section */}
-            {onAddChildToAccent && (
-              <div className="pt-2 border-t border-slate-200 space-y-2">
-                <label className="font-semibold text-slate-700 block">
-                  Add Item Inside Accent Line:
-                </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onAddChildToAccent(element.id, 'heading')}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
-                  >
-                    + Heading
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAddChildToAccent(element.id, 'key-value')}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
-                  >
-                    + Date / Info
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAddChildToAccent(element.id, 'paragraph')}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
-                  >
-                    + Text Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAddChildToAccent(element.id, 'button')}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
-                  >
-                    + CTA Button
-                  </button>
-                </div>
-              </div>
+            {onAddChildToContainer && (
+              <AddChildButtons
+                parentId={element.id}
+                onAddChild={onAddChildToContainer}
+                title="Add Item Inside Accent Line:"
+              />
             )}
           </div>
+        )}
+
+        {/* Section Container Editor */}
+        {element.type === 'section' && (
+          <SectionEditor
+            key={element.id}
+            element={element}
+            onUpdateElement={onUpdateElement}
+            onAddChild={onAddChildToContainer}
+          />
         )}
 
         {/* Quote / Scripture Editor */}

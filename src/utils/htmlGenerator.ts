@@ -139,6 +139,55 @@ ${childrenHtml}
 </div>`;
     }
 
+    case 'section': {
+      const childrenHtml = (element.childElements || [])
+        .map((child) => renderElementToHtml(child, fontFamily, opts))
+        .join('\n');
+
+      // Only non-zero sides emit a `border-*` declaration — a shorthand plus
+      // per-side overrides fights Outlook, and `0px solid` still reserves a
+      // hairline in some clients.
+      const borders = (
+        [
+          ['top', element.borderTopWidth],
+          ['right', element.borderRightWidth],
+          ['bottom', element.borderBottomWidth],
+          ['left', element.borderLeftWidth],
+        ] as const
+      )
+        .filter(([, width]) => width > 0)
+        .map(
+          ([side, width]) =>
+            `border-${side}:${width}px ${element.borderStyle} ${element.borderColor};`
+        )
+        .join(' ');
+
+      const hasBg = !!element.bgColor && element.bgColor !== 'transparent';
+
+      const cellStyle = [
+        `padding:${element.paddingTop}px ${element.paddingRight}px ${element.paddingBottom}px ${element.paddingLeft}px;`,
+        borders,
+        hasBg ? `background-color:${element.bgColor};` : '',
+        element.borderRadius > 0 ? `border-radius:${element.borderRadius}px;` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      // An empty section would collapse in some clients — a zero-height spacer
+      // keeps its padding and borders visible.
+      const body = childrenHtml.trim()
+        ? childrenHtml
+        : '<div style="font-size:1px; line-height:1px;">&nbsp;</div>';
+
+      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
+  <tr>
+    <td${hasBg ? ` bgcolor="${element.bgColor}"` : ''} style="${cellStyle}">
+${body}
+    </td>
+  </tr>
+</table>`;
+    }
+
     case 'divider': {
       return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
   <tr>

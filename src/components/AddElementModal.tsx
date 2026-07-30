@@ -12,6 +12,7 @@ import {
   Minus,
   Code,
   Plus,
+  Square,
 } from 'lucide-react';
 
 interface AddElementModalProps {
@@ -29,9 +30,17 @@ export const AddElementModal: React.FC<AddElementModalProps> = ({
 
   const elements = [
     {
+      type: 'section' as ElementType,
+      title: 'Section',
+      desc: 'Box with per-side borders and padding — drop other blocks inside it',
+      icon: Square,
+      color: 'bg-slate-100 text-slate-700 border-slate-200',
+      tag: 'Container',
+    },
+    {
       type: 'accent-section' as ElementType,
       title: 'Red Accent Block',
-      desc: 'Container with left colored border (matches Gmail Wednesday Study email)',
+      desc: 'Container with left colored border for highlighting a section',
       icon: Layout,
       color: 'bg-red-50 text-red-700 border-red-200',
       tag: 'Gmail Template Style',

@@ -1,4 +1,13 @@
-import { EmailElement, ElementType } from '../types';
+import { ContainerElement, EmailElement, ElementType } from '../types';
+
+/**
+ * True for blocks that hold `childElements`. Every tree walk (find, update,
+ * delete, move, reorder, re-id) goes through this instead of comparing `type`
+ * directly, so a new container type only has to be added to `ContainerElement`.
+ */
+export function isContainerElement(el: EmailElement): el is ContainerElement {
+  return el.type === 'accent-section' || el.type === 'section';
+}
 
 export function createNewElement(type: ElementType): EmailElement {
   const id = `el-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
@@ -124,6 +133,30 @@ export function createNewElement(type: ElementType): EmailElement {
             marginBottom: 10,
           },
         ],
+      };
+
+    case 'section':
+      // Starts empty on purpose: the canvas shows a drop zone, and the sidebar
+      // adds into whichever section is selected, so the next click fills it.
+      return {
+        id,
+        type: 'section',
+        label: 'Section',
+        bgColor: 'transparent',
+        borderColor: '#cbd5e1',
+        borderStyle: 'solid',
+        borderTopWidth: 1,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderLeftWidth: 1,
+        borderRadius: 0,
+        paddingTop: 20,
+        paddingRight: 20,
+        paddingBottom: 20,
+        paddingLeft: 20,
+        marginTop: 0,
+        marginBottom: 20,
+        childElements: [],
       };
 
     case 'divider':
