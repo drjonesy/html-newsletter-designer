@@ -12,7 +12,46 @@ function wrapEmphasis(html: string, bold: boolean, italic: boolean): string {
   return out;
 }
 
-export function renderElementToHtml(element: EmailElement, fontFamily: string): string {
+export interface RenderOptions {
+  /**
+   * Canvas-only. Wraps each directly-typeable text field in a marker span so
+   * VisualCanvas can turn it into a contenteditable region. Never pass this
+   * when generating markup that leaves the app — the spans are editor chrome,
+   * not email HTML.
+   */
+  editable?: boolean;
+}
+
+/**
+ * Tags a text field for inline editing on the canvas. Returns `value` untouched
+ * unless `opts.editable` is set, so the exported email HTML is byte-identical
+ * to what it was before inline editing existed.
+ *
+ * `field` must be the element property name — VisualCanvas writes the edited
+ * text straight back to `element[field]`.
+ */
+function editableField(
+  value: string,
+  field: string,
+  opts: RenderOptions | undefined,
+  rich = false
+): string {
+  if (!opts?.editable) return value;
+
+  // An empty field would collapse to a zero-width span with nothing to click.
+  const isEmpty = value.trim().length === 0;
+  const shown = isEmpty ? 'Click to edit…' : value;
+
+  return `<span data-edit-field="${field}"${rich ? ' data-edit-rich="1"' : ''}${
+    isEmpty ? ' data-edit-empty="1" style="opacity:0.4;"' : ''
+  }>${shown}</span>`;
+}
+
+export function renderElementToHtml(
+  element: EmailElement,
+  fontFamily: string,
+  opts?: RenderOptions
+): string {
   switch (element.type) {
     case 'header-image': {
       const img = `<img src="${element.src}" alt="${element.alt}" width="${element.width}" ${element.height ? `height="${element.height}"` : ''} style="max-width:100%; height:auto; display:inline-block; border:0;" />`;
@@ -32,14 +71,26 @@ export function renderElementToHtml(element: EmailElement, fontFamily: string): 
       const Tag = element.level || 'h2';
       const weight = element.fontWeight ?? 'bold';
       const style = element.fontStyle ?? 'normal';
-      const text = wrapEmphasis(element.text, weight === 'bold', style === 'italic');
+      const text = wrapEmphasis(
+        editableField(element.text, 'text', opts),
+        weight === 'bold',
+        style === 'italic'
+      );
       return `<${Tag} style="font-size:${element.fontSize}px; color:${element.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; text-transform:${element.transform}; letter-spacing:${element.letterSpacing}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; line-height:1.2;">${text}</${Tag}>`;
     }
 
     case 'key-value': {
       const boldLabel = element.boldLabel !== false;
-      const label = wrapEmphasis(element.label, boldLabel, !!element.italicLabel);
-      const value = wrapEmphasis(element.value, !!element.boldValue, !!element.italicValue);
+      const label = wrapEmphasis(
+        editableField(element.label, 'label', opts),
+        boldLabel,
+        !!element.italicLabel
+      );
+      const value = wrapEmphasis(
+        editableField(element.value, 'value', opts),
+        !!element.boldValue,
+        !!element.italicValue
+      );
       return `<p style="font-size:${element.fontSize}px; line-height:1.6; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily};">
   <span style="color:${element.labelColor}; font-weight:${boldLabel ? 'bold' : 'normal'}; font-style:${element.italicLabel ? 'italic' : 'normal'};">${label}</span>&nbsp;<span style="color:${element.valueColor}; font-weight:${element.boldValue ? 'bold' : 'normal'}; font-style:${element.italicValue ? 'italic' : 'normal'};">${value}</span>
 </p>`;
@@ -48,7 +99,11 @@ export function renderElementToHtml(element: EmailElement, fontFamily: string): 
     case 'paragraph': {
       const weight = element.fontWeight ?? 'normal';
       const style = element.fontStyle ?? 'normal';
-      const content = wrapEmphasis(element.content, weight === 'bold', style === 'italic');
+      const content = wrapEmphasis(
+        editableField(element.content, 'content', opts, true),
+        weight === 'bold',
+        style === 'italic'
+      );
       return `<div style="font-size:${element.fontSize}px; line-height:${element.lineHeight}; color:${element.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily}; font-weight:${weight}; font-style:${style};">
   ${content}
 </div>`;
@@ -66,7 +121,7 @@ export function renderElementToHtml(element: EmailElement, fontFamily: string): 
       <![endif]-->
       <!--[if !mso]><!-->
       <a href="${element.url}" target="_blank" style="background-color:${element.bgColor}; color:${element.textColor}; font-size:${element.fontSize}px; font-weight:${element.fontWeight}; text-decoration:none; padding:${element.paddingVertical}px ${element.paddingHorizontal}px; border-radius:${element.borderRadius}px; display:inline-block; font-family:${fontFamily}; text-align:center;">
-        ${element.text}
+        ${editableField(element.text, 'text', opts)}
       </a>
       <!--<![endif]-->
     </td>
@@ -76,7 +131,7 @@ export function renderElementToHtml(element: EmailElement, fontFamily: string): 
 
     case 'accent-section': {
       const childrenHtml = (element.childElements || [])
-        .map((child) => renderElementToHtml(child, fontFamily))
+        .map((child) => renderElementToHtml(child, fontFamily, opts))
         .join('\n');
 
       return `<div style="border-left:${element.borderWidth}px solid ${element.borderColor}; padding-left:${element.paddingLeft}px; margin-bottom:${element.marginBottom}px;">
@@ -95,10 +150,14 @@ ${childrenHtml}
     case 'quote': {
       const weight = element.fontWeight ?? 'normal';
       const style = element.fontStyle ?? 'italic';
-      const quote = wrapEmphasis(`"${element.quote}"`, weight === 'bold', style === 'italic');
+      const quote = wrapEmphasis(
+        `"${editableField(element.quote, 'quote', opts)}"`,
+        weight === 'bold',
+        style === 'italic'
+      );
       return `<blockquote style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; padding:16px 20px; background-color:${element.bgColor}; border-left:4px solid ${element.borderColor}; color:${element.textColor}; font-size:${element.fontSize}px; font-weight:${weight}; font-style:${style}; font-family:${fontFamily}; border-radius:4px;">
   ${quote}
-  ${element.author ? `<footer style="font-style:normal; font-size:14px; margin-top:8px; font-weight:bold; color:${element.textColor};">— ${element.author}</footer>` : ''}
+  ${element.author ? `<footer style="font-style:normal; font-size:14px; margin-top:8px; font-weight:bold; color:${element.textColor};">— ${editableField(element.author, 'author', opts)}</footer>` : ''}
 </blockquote>`;
     }
 

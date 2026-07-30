@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+/*
+ * Inline-edit affordances for the canvas. `[data-edit-field]` spans are emitted
+ * by htmlGenerator only when rendering for VisualCanvas — they never reach the
+ * exported email HTML, so these rules cannot leak into a sent newsletter.
+ */
+[data-edit-field] {
+  cursor: text;
+}
+
+[data-edit-field]:hover {
+  box-shadow: inset 0 -1px 0 rgba(178, 34, 34, 0.4);
+}
+
+[data-edit-field][contenteditable="true"] {
+  box-shadow: none;
+  outline: 2px solid rgba(178, 34, 34, 0.55);
+  outline-offset: 2px;
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.6);
+}

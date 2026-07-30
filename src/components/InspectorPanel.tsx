@@ -1,22 +1,33 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { EmailElement, ElementType } from '../types';
+import { renderElementToHtml } from '../utils/htmlGenerator';
 import {
   X,
   ChevronUp,
   ChevronDown,
   Trash2,
   Copy,
-  Plus,
-  Image,
-  Type,
-  MousePointerClick,
-  FileText,
   Palette,
-  Link,
   Upload,
   Bold,
   Italic,
+  Code2,
+  SlidersHorizontal,
+  AlertTriangle,
+  Undo2,
+  RotateCcw,
+  Check,
 } from 'lucide-react';
+
+export type InspectorTab = 'design' | 'html';
+
+/** "accent-section" -> "Accent Section", for use in prose. */
+function typeLabel(type: EmailElement['type']): string {
+  return type
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 interface TextStyleTogglesProps {
   bold: boolean;
@@ -67,6 +78,185 @@ const TextStyleToggles: React.FC<TextStyleTogglesProps> = ({
   );
 };
 
+interface ElementHtmlEditorProps {
+  element: EmailElement;
+  fontFamily: string;
+  onUpdateElement: (updated: EmailElement) => void;
+  onBackToDesign: () => void;
+}
+
+/**
+ * The Inspector's HTML tab: shows the markup this block emits, and lets it be
+ * hand-edited.
+ *
+ * Saving hand-edited markup on a typed block converts it to a `custom-html`
+ * element — arbitrary HTML can't be parsed back into typed fields like
+ * `fontSize` or `alignment`. The element it replaced is stashed on
+ * `convertedFrom` so the conversion can be undone.
+ *
+ * Mount this with `key={element.id}` so the draft resets when the selection
+ * changes.
+ */
+const ElementHtmlEditor: React.FC<ElementHtmlEditorProps> = ({
+  element,
+  fontFamily,
+  onUpdateElement,
+  onBackToDesign,
+}) => {
+  const isRawBlock = element.type === 'custom-html';
+  const source = isRawBlock
+    ? element.html
+    : renderElementToHtml(element, fontFamily);
+
+  const [draft, setDraft] = useState(source);
+  const [dirty, setDirty] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Keep mirroring the generator until the user starts typing — edits made in
+  // the Design tab should show up here live.
+  useEffect(() => {
+    if (!dirty) setDraft(source);
+  }, [source, dirty]);
+
+  const revertTarget =
+    element.type === 'custom-html' ? element.convertedFrom : undefined;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(draft);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSave = () => {
+    if (isRawBlock) {
+      onUpdateElement({ ...element, html: draft });
+    } else {
+      onUpdateElement({
+        id: element.id,
+        type: 'custom-html',
+        label: element.label ?? `${typeLabel(element.type)} (HTML)`,
+        html: draft,
+        convertedFrom: element,
+      });
+    }
+    setDirty(false);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+      <div className="flex items-center justify-between">
+        <label className="font-semibold text-slate-700">
+          {isRawBlock ? 'Raw HTML Code' : `Generated HTML — ${typeLabel(element.type)}`}
+        </label>
+        <div className="flex items-center gap-1">
+          {dirty && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(source);
+                setDirty(false);
+              }}
+              className="flex items-center gap-1 px-1.5 py-1 rounded border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px]"
+              title="Discard edits and regenerate from the Design tab"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1 px-1.5 py-1 rounded border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px]"
+            title="Copy this block's HTML"
+          >
+            {copied ? (
+              <Check className="w-3 h-3 text-green-600" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
+
+      <textarea
+        spellCheck={false}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setDirty(e.target.value !== source);
+        }}
+        className="w-full h-72 bg-slate-900 font-mono text-[11px] leading-relaxed text-slate-100 border border-slate-800 rounded p-2 focus:ring-1 focus:ring-red-500 resize-y"
+      />
+
+      {!isRawBlock && !dirty && (
+        <p className="text-[11px] text-slate-500">
+          This markup is generated from the Design tab. Edit it here to take
+          manual control of the block.
+        </p>
+      )}
+
+      {!isRawBlock && dirty && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-2">
+          <p className="font-bold flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+            Saving converts this block
+          </p>
+          <p className="text-[11px] leading-relaxed">
+            This {typeLabel(element.type)} block becomes a raw HTML block holding
+            your code. Its design controls stop applying
+            {element.type === 'accent-section'
+              ? ', and its child elements are flattened into this markup'
+              : ''}
+            . You can revert afterwards.
+          </p>
+        </div>
+      )}
+
+      {isRawBlock && dirty && (
+        <p className="text-[11px] text-slate-500">
+          Unsaved changes. This block already stores raw HTML, so saving just
+          updates it.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={!dirty}
+        className={`w-full flex items-center justify-center gap-1.5 rounded p-2 font-bold transition-colors ${
+          dirty
+            ? 'bg-red-700 hover:bg-red-800 text-white cursor-pointer'
+            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+        }`}
+      >
+        <Code2 className="w-3.5 h-3.5" />
+        {isRawBlock ? 'Save HTML' : 'Save as HTML Block'}
+      </button>
+
+      {revertTarget && (
+        <div className="pt-3 border-t border-slate-200 space-y-2">
+          <p className="text-[11px] text-slate-500">
+            Converted from a {typeLabel(revertTarget.type)} block. Reverting
+            restores its design controls and discards the code above.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              onUpdateElement(revertTarget);
+              onBackToDesign();
+            }}
+            className="w-full flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded p-2 font-semibold cursor-pointer"
+          >
+            <Undo2 className="w-3.5 h-3.5 text-red-700" />
+            Revert to {typeLabel(revertTarget.type)} Block
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface InspectorPanelProps {
   element: EmailElement | null;
   onUpdateElement: (updated: EmailElement) => void;
@@ -76,6 +266,10 @@ interface InspectorPanelProps {
   onMoveDown: (id: string) => void;
   onClose: () => void;
   onAddChildToAccent?: (parentId: string, type: ElementType) => void;
+  /** Font stack used to generate this element's HTML in the HTML tab. */
+  fontFamily: string;
+  activeTab: InspectorTab;
+  onChangeTab: (tab: InspectorTab) => void;
 }
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
@@ -87,6 +281,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onMoveDown,
   onClose,
   onAddChildToAccent,
+  fontFamily,
+  activeTab,
+  onChangeTab,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const paragraphRef = useRef<HTMLTextAreaElement | null>(null);
@@ -184,7 +381,41 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         </div>
       </div>
 
-      {/* Editor Controls Form */}
+      {/* Design / HTML Tabs */}
+      <div className="flex items-stretch border-b border-slate-200 bg-white px-2">
+        {(
+          [
+            { id: 'design' as const, label: 'Design', Icon: SlidersHorizontal },
+            { id: 'html' as const, label: 'HTML', Icon: Code2 },
+          ]
+        ).map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChangeTab(id)}
+            aria-pressed={activeTab === id}
+            className={`flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold uppercase tracking-wide border-b-2 -mb-px transition-colors ${
+              activeTab === id
+                ? 'border-red-700 text-red-700'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'html' ? (
+        <ElementHtmlEditor
+          key={element.id}
+          element={element}
+          fontFamily={fontFamily}
+          onUpdateElement={onUpdateElement}
+          onBackToDesign={() => onChangeTab('design')}
+        />
+      ) : (
+      /* Editor Controls Form */
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
         {/* Header Image Editor */}
         {element.type === 'header-image' && (
@@ -763,19 +994,42 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         )}
 
-        {/* Custom HTML Editor */}
+        {/* Custom HTML block — the markup itself is edited in the HTML tab */}
         {element.type === 'custom-html' && (
-          <div className="space-y-2">
-            <label className="font-semibold text-slate-700">Raw HTML Code</label>
-            <textarea
-              rows={8}
-              value={element.html}
-              onChange={(e) => onUpdateElement({ ...element, html: e.target.value })}
-              className="w-full bg-slate-900 font-mono text-[11px] text-slate-100 border border-slate-800 rounded p-2 focus:ring-1 focus:ring-red-500"
-            />
+          <div className="space-y-3">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+              <p className="font-bold flex items-center gap-1.5 text-slate-800">
+                <Code2 className="w-3.5 h-3.5 text-red-700" />
+                Raw HTML Block
+              </p>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                This block has no design controls — its markup is written by
+                hand. Edit it in the HTML tab.
+              </p>
+              <button
+                type="button"
+                onClick={() => onChangeTab('html')}
+                className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded p-2 font-semibold cursor-pointer"
+              >
+                <Code2 className="w-3.5 h-3.5 text-red-700" />
+                Open HTML Editor
+              </button>
+            </div>
+
+            {element.convertedFrom && (
+              <button
+                type="button"
+                onClick={() => onUpdateElement(element.convertedFrom!)}
+                className="w-full flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded p-2 font-semibold cursor-pointer"
+              >
+                <Undo2 className="w-3.5 h-3.5 text-red-700" />
+                Revert to {typeLabel(element.convertedFrom.type)} Block
+              </button>
+            )}
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

@@ -15,7 +15,7 @@ import { createNewElement } from './utils/elementHelpers';
 import { Navbar } from './components/Navbar';
 import { SidebarElements } from './components/SidebarElements';
 import { VisualCanvas } from './components/VisualCanvas';
-import { InspectorPanel } from './components/InspectorPanel';
+import { InspectorPanel, InspectorTab } from './components/InspectorPanel';
 import { CodeEditor } from './components/CodeEditor';
 import { AddElementModal } from './components/AddElementModal';
 import { ImportHtmlModal } from './components/ImportHtmlModal';
@@ -39,7 +39,23 @@ export default function App() {
 
   const [activePresetId, setActivePresetId] = useState<string>('wednesday-study');
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('design');
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile' | 'code'>('desktop');
+
+  /**
+   * Selecting a different block lands on Design; the canvas `</>` badge opts
+   * into HTML. Re-selecting the block already open keeps the current tab so an
+   * in-progress HTML draft survives a stray click on the canvas.
+   */
+  const handleSelectElement = (id: string | null) => {
+    if (id !== selectedElementId) setInspectorTab('design');
+    setSelectedElementId(id);
+  };
+
+  const handleViewElementHtml = (id: string) => {
+    setSelectedElementId(id);
+    setInspectorTab('html');
+  };
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -374,7 +390,7 @@ export default function App() {
           <VisualCanvas
             template={template}
             selectedElementId={selectedElementId}
-            onSelectElement={setSelectedElementId}
+            onSelectElement={handleSelectElement}
             onUpdateElement={handleUpdateElement}
             onDeleteElement={handleDeleteElement}
             onDuplicateElement={handleDuplicateElement}
@@ -382,6 +398,7 @@ export default function App() {
             onMoveDown={handleMoveDown}
             viewMode={viewMode}
             onOpenNewTab={handleOpenNewTab}
+            onViewElementHtml={handleViewElementHtml}
           />
         )}
 
@@ -394,8 +411,11 @@ export default function App() {
             onDuplicateElement={handleDuplicateElement}
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
-            onClose={() => setSelectedElementId(null)}
+            onClose={() => handleSelectElement(null)}
             onAddChildToAccent={handleAddChildToAccent}
+            fontFamily={template.settings.fontFamily}
+            activeTab={inspectorTab}
+            onChangeTab={setInspectorTab}
           />
         )}
       </div>

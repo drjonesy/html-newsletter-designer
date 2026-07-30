@@ -126,6 +126,12 @@ export interface QuoteElement extends BaseElement {
 export interface CustomHtmlElement extends BaseElement {
   type: 'custom-html';
   html: string;
+  /**
+   * Set when this block was produced by saving hand-edited markup in the
+   * Inspector's HTML tab. Holds the typed element it replaced so the edit can
+   * be reverted. Absent on blocks the user added as Custom HTML outright.
+   */
+  convertedFrom?: Exclude<EmailElement, CustomHtmlElement>;
 }
 
 export type EmailElement =

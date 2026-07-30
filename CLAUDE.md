@@ -68,6 +68,10 @@ type requires touching four places:**
 Miss one and `pnpm lint` will usually catch it, because the switches are exhaustive over
 the union.
 
+If the new type has text the user should be able to type over on the canvas, wrap that
+text in `editableField(value, 'fieldName', opts)` in its generator case and add the type to
+`INLINE_EDITABLE_TYPES` in `VisualCanvas.tsx` — see *Inline editing* below.
+
 ### Nesting
 
 `accent-section` is the only container type — it holds `childElements: EmailElement[]`,
@@ -89,6 +93,36 @@ flat array.
 Because the canvas renders the *real* generated HTML rather than a React lookalike, the
 preview and the export can't drift. Keep it that way: never add a parallel
 React-based renderer for a block.
+
+### Inline editing (WYSIWYG)
+
+`renderElementToHtml` takes an optional third argument, `{ editable: true }`, passed only
+by `VisualCanvas`. It wraps each user-typeable field in
+`<span data-edit-field="<propName>">` (plus `data-edit-rich="1"` where the field holds
+HTML, and `data-edit-empty="1"` on a blank field so there's something to click). Export
+paths never pass it, so the emitted email HTML is unchanged — keep it that way, and never
+add editor chrome to the default (export) branch.
+
+`BlockBody` in `VisualCanvas.tsx` drives the editing:
+
+- The **first** click selects the block; a **second** click on a marked field starts
+  editing it. Editing can't start on the selecting click, because opening the Inspector
+  resizes the canvas and the cursor would end up over different content.
+- The `data-edit-field` value must be the element's property name — the committed text is
+  written straight back to `element[field]`.
+- Edits commit **on blur**, not per keystroke: committing regenerates the block's HTML and
+  replaces these DOM nodes, which would drop the caret. Enter saves (or inserts `<br>` in a
+  rich field); Escape abandons.
+- Read plain fields with `textContent`, never `innerText` — `innerText` returns the
+  *rendered* text, so a heading with `text-transform:uppercase` would save back SHOUTING.
+
+### The Inspector's HTML tab
+
+`InspectorPanel` has Design and HTML tabs; `App.tsx` owns which is active so the `</>`
+button on a canvas block can jump straight to HTML. Saving hand-edited markup on a typed
+block **converts it to a `custom-html` element**, stashing the original on
+`convertedFrom` so the Revert button can restore it. Arbitrary HTML can't be parsed back
+into typed fields like `fontSize`, so don't try to make the code view round-trip.
 
 ## Email HTML constraints
 
