@@ -76,7 +76,7 @@ Note the discriminant is the string `status`, not a boolean `ok` — `tsconfig.j
 ### Elements are a discriminated union
 
 [src/types.ts](src/types.ts) defines `EmailElement` as a union discriminated on `type`
-(`'heading' | 'paragraph' | 'button' | 'accent-section' | ...`). **Adding a new element
+(`'heading' | 'paragraph' | 'button' | 'section' | ...`). **Adding a new element
 type requires touching four places:**
 
 1. `src/types.ts` — add the `ElementType` literal, the interface, and the union member
@@ -93,9 +93,10 @@ text in `editableField(value, 'fieldName', opts)` in its generator case and add 
 
 ### Nesting
 
-Two block types hold `childElements: EmailElement[]`: `section` (the general-purpose box,
-with per-side borders and padding) and `accent-section` (the fixed left-rule callout).
-They nest arbitrarily deep — a section can contain a section.
+One block type holds `childElements: EmailElement[]`: `section`, the general-purpose box
+with per-side borders and padding. Sections nest arbitrarily deep — a section can contain a
+section. (`ContainerElement` is still a union of one, so a second container type stays cheap
+to add.)
 
 Never test `el.type === 'section'` to decide whether to recurse. Use
 `isContainerElement(el)` from [src/utils/elementHelpers.ts](src/utils/elementHelpers.ts),
@@ -151,6 +152,29 @@ add editor chrome to the default (export) branch.
 - Read plain fields with `textContent`, never `innerText` — `innerText` returns the
   *rendered* text, so a heading with `text-transform:uppercase` would save back SHOUTING.
 
+### Selecting a container that's full
+
+A section is mostly covered by its children, and every block stops its click bubbling, so
+clicking "the section" only works on whatever sliver of its own padding is exposed. Two
+affordances stand in for that, both in `VisualCanvas`:
+
+- Every block's hover badge carries a **step-out button** (`CornerLeftUp`) when it has a
+  parent, which selects the section it lives in. Nested sections get it too — it comes from
+  the shared `renderBadgeActions(el, parentId)`, which is why
+  `renderSingleInteractiveElement` takes the parent's id rather than the old
+  `insideContainer` boolean (`insideContainer` is now derived from it).
+- A container whose subtree holds the hovered or selected block (`holdsActive`) keeps a
+  faint ring and shows a **compact badge with its name** at its top-*right*, which selects
+  it. Right, because the full badge and every child's badge sit at the top-left.
+
+Hover is tracked with a bubbling `onMouseOver` on each block wrapper (innermost stops
+propagation), plus one `onMouseLeave` on the canvas root. It was per-block
+enter/leave, but leaving a child cleared the hover outright and tore down the section badge
+the cursor was travelling towards. Hover must only ever move from one block to another.
+For the same reason the compact badge swallows `mouseover` instead of forwarding it:
+letting hover reach the section would satisfy `isHovered`, unmount the badge, and leave the
+click with nothing under it.
+
 ### Drag to reorder
 
 Blocks reorder by dragging the grip on the hover badge. The wrapper is only
@@ -170,14 +194,100 @@ treat the rest as `'inside'`. Children stop `dragover` bubbling, so a container 
 events over its own padding. An empty container renders a dashed placeholder — without it
 there'd be nothing to aim at.
 
-### Adding blocks into sections
+### Sections are the only home for blocks
 
-`handleAddElement` is container-aware: `addTarget` (in `App.tsx`) resolves the selected
-block to the section it is or sits in, and the new block is appended there instead of at
-the end of the email. `SidebarElements` shows an "Adding into …" banner with a Clear button
-whenever that's in effect. This makes "keep everything in sections" the path of least
-resistance without making it mandatory — top-level blocks remain valid, and every existing
-saved template still loads.
+`canSitAtTopLevel(type)` in [src/utils/elementHelpers.ts](src/utils/elementHelpers.ts) is
+the rule: **only containers may sit at the top level of the email.** Everything else has to
+live inside one. Both placement paths enforce it:
+
+- **Adding.** `handleAddElement` routes a click into `addTarget` — the selected section, or
+  the section holding the selected block. With no section selected, a non-container click
+  is refused with a notice rather than dropped loose at the end.
+- **Dragging.** `dragProps` in `VisualCanvas` computes it per target from `insideContainer`
+  (does *this* block live in a section?) — landing beside a block means landing where that
+  block lives, so a paragraph may go next to a paragraph inside a section but not next to a
+  top-level one. When only one outcome is legal the whole box takes it, so there's no dead
+  edge strip to fall into. `handleReorderElement` re-checks the rule as a backstop.
+
+Nothing in the editor has to cope with a loose top-level block, because templates predating
+the rule are migrated on load — see below. Both entries in `PRESET_TEMPLATES` (including
+`BLANK_CANVAS_TEMPLATE`) already wrap their content in sections.
+
+### Migrating pre-section templates
+
+`migrateToSections(elements)` wraps each *run* of consecutive loose top-level blocks in one
+`createBareSection` — a section with no borders, padding, margins or fill. Consecutive
+blocks share a wrapper so the author's grouping survives instead of exploding into a section
+per paragraph; existing containers stay exactly where they are. It's idempotent, so it's
+safe to run on every load.
+
+Both load paths call it, and each reports the count so the user is told their work was
+restructured:
+
+- `loadInitialTemplate()` in `App.tsx` — the auto-saved `localStorage` template
+- `parseTemplateFile` — project files, via `wrappedInSections` on the `ok` result (kept
+  separate from `warnings`: nothing failed to read)
+
+**The wrap is byte-neutral in the export, and must stay that way.** A section with no
+border, padding, margin or fill emits *only its children* — `renderElementToHtml` returns
+early before building the wrapper table, joining them with `\n\n` to match how
+`generateEmailHtml` joins top-level blocks. That early return is what lets migration
+restructure someone's saved newsletter without changing a byte of the email they send. It
+also keeps genuinely empty wrapper tables out of the output, which matters because Gmail
+clips messages at ~102KB. If you change the `section` generator, keep the early return and
+re-check that migrating a legacy template is a no-op on `generateEmailHtml`.
+
+Raw-HTML import (`handleImportRawHtml`) produces a `custom-html` block, which isn't a
+container — it goes into the selected section, or into a bare section of its own.
+
+### Removed and renamed block types load as their replacement
+
+Two types have been retired so far, and both are converted on load rather than dropped:
+
+- `accent-section` → `section` (`convertLegacyAccentSection`)
+- `header-image` → `image` (`convertLegacyHeaderImage`) — the "Header Logo / Banner" was
+  never actually restricted to the top of the email, so it was renamed to the generic
+  **Image**. Only `type` changes; every field carries over, and the old default label
+  `'Header Banner / Logo'` is replaced with `'Image'` so nothing still names a dead type.
+  This is what `TEMPLATE_FILE_VERSION` 2 marks.
+
+`accent-section` — the "Red Accent Block", a container with a fixed left rule — was removed
+once `section` could draw a single-sided border. Templates saved while it existed are still
+in users' `localStorage` and in `.newsletter.json` files on disk, so it is *converted*, not
+dropped: `convertLegacyAccentSection` in `elementHelpers.ts` maps its `borderWidth` /
+`borderColor` / `paddingLeft` / `marginBottom` onto a `section` with only a left border. The
+conversion is silent — the block keeps looking the way its author left it.
+
+Both load paths have to do this, and they hook it at different points, because a project
+file is validated against `ELEMENT_TYPES` *before* `migrateToSections` runs:
+
+- `parseTemplateFile` converts in `normalizeElement`, ahead of the type check — otherwise
+  the block would be dropped as unknown with a warning
+- `migrateToSections` converts the whole tree first (`convertLegacyBlocks`), which covers
+  the `localStorage` path
+
+Follow that shape if another type is ever retired: convert at both points, keep it
+idempotent, and don't leave the dead type in `ElementType`. A *rename* is the same job —
+old files carry the old string, so it needs the same two hooks.
+
+### Palette drag-and-drop
+
+Palette items in `SidebarElements` are drag sources; `VisualCanvas` resolves the drop.
+`paletteDragType` lives in `App.tsx` because `dataTransfer` can't be read during `dragover`
+— the canvas has to know what's coming to decide whether a block is a legal target, so the
+type is passed through React state instead.
+
+Two consequences:
+
+- `VisualCanvas` unifies the two drag kinds into `activeDragType` (`paletteDragType` for a
+  new block, `draggingType` for a reorder). Placement rules are written against the type,
+  so they apply identically to both.
+- A palette drag starts on a sidebar button, so no canvas block ever sees its `dragend`. A
+  `useEffect` on `paletteDragType` clears `dropTarget`; without it an abandoned drag leaves
+  a block stuck showing a drop highlight.
+
+Don't put "add block" buttons in `InspectorPanel` — a grid of them used to live there and
+gave sections two competing ways to be filled. The palette is the one way in.
 
 ### The Inspector's HTML tab
 
@@ -204,12 +314,12 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | File | Role |
 | --- | --- |
 | [App.tsx](src/App.tsx) | All state + every mutation handler |
-| [Navbar.tsx](src/components/Navbar.tsx) | Preset picker, view mode (desktop/mobile/code), new/save/open project file, export/import actions |
-| [SidebarElements.tsx](src/components/SidebarElements.tsx) | Element palette; "Canvas Style" tab holds the newsletter name + global `EmailSettings` |
+| [Navbar.tsx](src/components/Navbar.tsx) | Right-aligned new/save/open project file + export/import actions. Nothing else — the brand is the only thing on the left |
+| [ViewModeToggle.tsx](src/components/ViewModeToggle.tsx) | Desktop/mobile/code switch + open-in-new-tab, in the strip above the preview |
+| [SidebarElements.tsx](src/components/SidebarElements.tsx) | Preset picker above the tabs; element palette; "Canvas Style" tab holds the newsletter name + global `EmailSettings` |
 | [VisualCanvas.tsx](src/components/VisualCanvas.tsx) | Live preview; renders generated HTML per block, handles selection |
 | [InspectorPanel.tsx](src/components/InspectorPanel.tsx) | Per-element property editors + global `EmailSettings` |
 | [CodeEditor.tsx](src/components/CodeEditor.tsx) | Read-only generated-HTML view |
-| [AddElementModal.tsx](src/components/AddElementModal.tsx) | Element type picker |
 | [ImportHtmlModal.tsx](src/components/ImportHtmlModal.tsx) | Paste raw HTML → wraps it as a `custom-html` element |
 | [ExportModal.tsx](src/components/ExportModal.tsx) | Copy / download / open-in-new-tab |
 
@@ -217,9 +327,11 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 (the seed template loaded on first run and the target of Reset) and `PRESET_TEMPLATES`
 (currently Blank Canvas and General Announcement).
 
-The preset `<select>` in [Navbar.tsx](src/components/Navbar.tsx) hardcodes its `<option>`
-list rather than mapping `PRESET_TEMPLATES`; adding or reordering a preset means editing
-both.
+The preset `<select>` at the top of
+[SidebarElements.tsx](src/components/SidebarElements.tsx) hardcodes its `<option>` list
+rather than mapping `PRESET_TEMPLATES`; adding or reordering a preset means editing both.
+It lives in the sidebar, which `App.tsx` hides in code view — so the picker is only
+reachable from Desktop/Mobile.
 
 ## Project history
 

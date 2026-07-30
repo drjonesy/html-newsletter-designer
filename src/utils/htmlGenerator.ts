@@ -53,7 +53,7 @@ export function renderElementToHtml(
   opts?: RenderOptions
 ): string {
   switch (element.type) {
-    case 'header-image': {
+    case 'image': {
       const img = `<img src="${element.src}" alt="${element.alt}" width="${element.width}" ${element.height ? `height="${element.height}"` : ''} style="max-width:100%; height:auto; display:inline-block; border:0;" />`;
       const wrappedImg = element.href
         ? `<a href="${element.href}" target="_blank" style="text-decoration:none;">${img}</a>`
@@ -129,20 +129,40 @@ export function renderElementToHtml(
 </table>`;
     }
 
-    case 'accent-section': {
-      const childrenHtml = (element.childElements || [])
-        .map((child) => renderElementToHtml(child, fontFamily, opts))
-        .join('\n');
-
-      return `<div style="border-left:${element.borderWidth}px solid ${element.borderColor}; padding-left:${element.paddingLeft}px; margin-bottom:${element.marginBottom}px;">
-${childrenHtml}
-</div>`;
-    }
-
     case 'section': {
-      const childrenHtml = (element.childElements || [])
-        .map((child) => renderElementToHtml(child, fontFamily, opts))
-        .join('\n');
+      const children = (element.childElements || []).map((child) =>
+        renderElementToHtml(child, fontFamily, opts)
+      );
+
+      const hasBorder =
+        element.borderTopWidth > 0 ||
+        element.borderRightWidth > 0 ||
+        element.borderBottomWidth > 0 ||
+        element.borderLeftWidth > 0;
+      const hasPadding =
+        element.paddingTop > 0 ||
+        element.paddingRight > 0 ||
+        element.paddingBottom > 0 ||
+        element.paddingLeft > 0;
+      const hasSpacing = element.marginTop > 0 || element.marginBottom > 0;
+      const hasFill = !!element.bgColor && element.bgColor !== 'transparent';
+
+      /*
+        A section that draws nothing emits nothing of its own — just its
+        children. Email HTML is size-constrained (Gmail clips at ~102KB), so a
+        wrapper table with no borders, padding, margin or fill is pure weight.
+
+        This is also what makes wrapping legacy top-level blocks in a bare
+        section (see `migrateToSections`) safe: the structure the editor sees
+        changes, the exported email does not. The blank-line join matches how
+        `generateEmailHtml` joins top-level blocks, so the wrap is byte-neutral
+        rather than merely render-neutral.
+      */
+      if (!hasBorder && !hasPadding && !hasSpacing && !hasFill) {
+        return children.join('\n\n');
+      }
+
+      const childrenHtml = children.join('\n');
 
       // Only non-zero sides emit a `border-*` declaration — a shorthand plus
       // per-side overrides fights Outlook, and `0px solid` still reserves a
@@ -162,7 +182,7 @@ ${childrenHtml}
         )
         .join(' ');
 
-      const hasBg = !!element.bgColor && element.bgColor !== 'transparent';
+      const hasBg = hasFill;
 
       const cellStyle = [
         `padding:${element.paddingTop}px ${element.paddingRight}px ${element.paddingBottom}px ${element.paddingLeft}px;`,

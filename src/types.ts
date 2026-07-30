@@ -1,7 +1,6 @@
 export type ElementType =
-  | 'header-image'
+  | 'image'
   | 'heading'
-  | 'accent-section'
   | 'section'
   | 'key-value'
   | 'paragraph'
@@ -16,8 +15,8 @@ export interface BaseElement {
   label?: string;
 }
 
-export interface HeaderImageElement extends BaseElement {
-  type: 'header-image';
+export interface ImageElement extends BaseElement {
+  type: 'image';
   src: string;
   alt: string;
   width: number | string;
@@ -28,10 +27,13 @@ export interface HeaderImageElement extends BaseElement {
   paddingBottom: number;
 }
 
+/** Every HTML heading tag. Email clients render all six. */
+export type HeadingLevel = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+
 export interface HeadingElement extends BaseElement {
   type: 'heading';
   text: string;
-  level: 'h1' | 'h2' | 'h3';
+  level: HeadingLevel;
   color: string;
   fontSize: number;
   /** Optional — defaults to 'bold' for headings when absent (older saved templates). */
@@ -87,16 +89,6 @@ export interface ButtonElement extends BaseElement {
   alignment: 'left' | 'center' | 'right';
   marginTop: number;
   marginBottom: number;
-}
-
-export interface AccentSectionElement extends BaseElement {
-  type: 'accent-section';
-  borderColor: string;
-  borderWidth: number;
-  paddingLeft: number;
-  marginBottom: number;
-  // Accent section wraps sub-elements or has title + items
-  childElements: EmailElement[];
 }
 
 /**
@@ -165,12 +157,11 @@ export interface CustomHtmlElement extends BaseElement {
 }
 
 export type EmailElement =
-  | HeaderImageElement
+  | ImageElement
   | HeadingElement
   | KeyValueElement
   | ParagraphElement
   | ButtonElement
-  | AccentSectionElement
   | SectionElement
   | DividerElement
   | QuoteElement
@@ -182,7 +173,7 @@ export type EmailElement =
  * `utils/elementHelpers` rather than testing `type` by hand, so adding another
  * container later doesn't mean re-auditing every traversal.
  */
-export type ContainerElement = AccentSectionElement | SectionElement;
+export type ContainerElement = SectionElement;
 
 export interface EmailSettings {
   width: number; // default 600

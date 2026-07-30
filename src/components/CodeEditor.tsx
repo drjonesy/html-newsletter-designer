@@ -27,7 +27,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   };
 
   return (
-    <div className="flex-1 bg-slate-100 flex flex-col h-full overflow-hidden text-slate-800">
+    <div className="flex-1 min-h-0 bg-slate-100 flex flex-col overflow-hidden text-slate-800">
       {/* Code Header Bar */}
       <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -10,7 +10,13 @@ import {
   PRESET_TEMPLATES,
 } from './utils/defaultTemplate';
 import { generateEmailHtml } from './utils/htmlGenerator';
-import { createNewElement, isContainerElement } from './utils/elementHelpers';
+import {
+  canSitAtTopLevel,
+  createBareSection,
+  createNewElement,
+  isContainerElement,
+  migrateToSections,
+} from './utils/elementHelpers';
 import {
   parseTemplateFile,
   serializeTemplateFile,
@@ -22,7 +28,7 @@ import { SidebarElements } from './components/SidebarElements';
 import { VisualCanvas } from './components/VisualCanvas';
 import { InspectorPanel, InspectorTab } from './components/InspectorPanel';
 import { CodeEditor } from './components/CodeEditor';
-import { AddElementModal } from './components/AddElementModal';
+import { ViewModeToggle } from './components/ViewModeToggle';
 import { ImportHtmlModal } from './components/ImportHtmlModal';
 import { ExportModal } from './components/ExportModal';
 
@@ -36,19 +42,41 @@ interface Notice {
   message: string;
 }
 
+/**
+ * Restores the auto-saved template, bringing anything saved before blocks were
+ * required to live in sections into line with that rule.
+ *
+ * Runs once, as a lazy `useState` initializer, and reports how much it had to
+ * wrap so the user can be told their work was restructured.
+ */
+function loadInitialTemplate(): {
+  template: NewsletterTemplate;
+  wrappedInSections: number;
+} {
+  try {
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as NewsletterTemplate;
+      if (Array.isArray(parsed?.elements)) {
+        const migrated = migrateToSections(parsed.elements);
+        return {
+          template: { ...parsed, elements: migrated.elements },
+          wrappedInSections: migrated.wrapped,
+        };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse local storage template', e);
+  }
+  return { template: BLANK_CANVAS_TEMPLATE, wrappedInSections: 0 };
+}
+
 export default function App() {
   // 1. Initial State from LocalStorage or the default Blank Canvas template
-  const [template, setTemplate] = useState<NewsletterTemplate>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Failed to parse local storage template', e);
-    }
-    return BLANK_CANVAS_TEMPLATE;
-  });
+  const [restored] = useState(loadInitialTemplate);
+  const [template, setTemplate] = useState<NewsletterTemplate>(
+    restored.template
+  );
 
   const [activePresetId, setActivePresetId] = useState<string>('blank');
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -70,8 +98,19 @@ export default function App() {
     setInspectorTab('html');
   };
 
+  /**
+   * The palette item currently being dragged onto the canvas, if any.
+   *
+   * This lives here rather than in either component because the drag starts in
+   * `SidebarElements` and is resolved in `VisualCanvas`, and `dataTransfer`
+   * can't be read during `dragover` — the canvas has to know what's coming to
+   * decide whether a given block is a legal drop target.
+   */
+  const [paletteDragType, setPaletteDragType] = useState<ElementType | null>(
+    null
+  );
+
   // Modals
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -89,6 +128,19 @@ export default function App() {
       console.error('Failed to save template to local storage', e);
     }
   }, [template]);
+
+  // Tell the user if restoring their work restructured it.
+  useEffect(() => {
+    if (restored.wrappedInSections === 0) return;
+    setNotice({
+      tone: 'success',
+      message: `Blocks now live inside sections. ${restored.wrappedInSections} loose block${
+        restored.wrappedInSections === 1 ? '' : 's'
+      } in your saved newsletter ${
+        restored.wrappedInSections === 1 ? 'was' : 'were'
+      } wrapped in a section. The exported HTML is unchanged — the section has no borders or padding until you give it some.`,
+    });
+  }, [restored.wrappedInSections]);
 
   // Confirmations fade on their own; problems stay until dismissed.
   useEffect(() => {
@@ -198,7 +250,7 @@ export default function App() {
     setNotice(null);
   };
 
-  // Add Child Element inside a container (Section / Accent Section)
+  // Add Child Element inside a container (Section)
   const handleAddChildToContainer = (parentId: string, type: ElementType) => {
     const newChild = createNewElement(type);
     setTemplate((prev) => {
@@ -226,21 +278,87 @@ export default function App() {
   };
 
   /**
-   * Add a block. With a section selected (or a block inside one) the new block
-   * lands in that section rather than at the end of the email — the palette
-   * always fills whatever you're working in.
+   * Add a block from the palette by clicking it.
+   *
+   * Non-container blocks have to land in a section, so a click needs one to
+   * aim at: the selected section, or the section holding the selected block.
+   * With nothing selected there's no sensible destination — say so rather than
+   * dropping the block loose at the end of the email.
    */
   const handleAddElement = (type: ElementType) => {
     if (addTarget) {
       handleAddChildToContainer(addTarget.id, type);
       return;
     }
+
+    if (!canSitAtTopLevel(type)) {
+      setNotice({
+        tone: 'warning',
+        message:
+          'Blocks live inside sections. Drag this onto a section on the canvas, or select a section first and then click it.',
+      });
+      return;
+    }
+
     const newEl = createNewElement(type);
     setTemplate((prev) => ({
       ...prev,
       elements: [...prev.elements, newEl],
     }));
     setSelectedElementId(newEl.id);
+  };
+
+  /**
+   * Insert `node` relative to `targetId`. A null target appends to the top
+   * level, which is how the first section lands on an empty canvas.
+   *
+   * Shared by palette drops and by reordering, so both resolve a drop position
+   * the same way.
+   */
+  const insertRelativeTo = (
+    elements: EmailElement[],
+    targetId: string | null,
+    position: 'before' | 'after' | 'inside',
+    node: EmailElement
+  ): EmailElement[] => {
+    if (targetId === null) return [...elements, node];
+
+    const result: EmailElement[] = [];
+    for (const el of elements) {
+      let next: EmailElement = isContainerElement(el)
+        ? {
+            ...el,
+            childElements: insertRelativeTo(
+              el.childElements || [],
+              targetId,
+              position,
+              node
+            ),
+          }
+        : el;
+      if (el.id === targetId && position === 'inside' && isContainerElement(next)) {
+        next = { ...next, childElements: [...(next.childElements || []), node] };
+      }
+      if (el.id === targetId && position === 'before') result.push(node);
+      result.push(next);
+      if (el.id === targetId && position === 'after') result.push(node);
+    }
+    return result;
+  };
+
+  /** Drop of a brand-new block dragged out of the palette. */
+  const handleDropNewElement = (
+    type: ElementType,
+    targetId: string | null,
+    position: 'before' | 'after' | 'inside'
+  ) => {
+    const newEl = createNewElement(type);
+    setTemplate((prev) => ({
+      ...prev,
+      elements: insertRelativeTo(prev.elements, targetId, position, newEl),
+    }));
+    setSelectedElementId(newEl.id);
+    setPaletteDragType(null);
   };
 
   // Update Element
@@ -415,6 +533,17 @@ export default function App() {
       const resolved =
         position === 'inside' && !isContainerElement(target) ? 'after' : position;
 
+      // Landing beside a top-level block means landing at the top level, which
+      // only containers may do. The canvas doesn't offer such a drop; this is
+      // the backstop.
+      if (
+        resolved !== 'inside' &&
+        !canSitAtTopLevel(dragged.type) &&
+        !findContainerFor(prev.elements, targetId)
+      ) {
+        return prev;
+      }
+
       const removeFromList = (elements: EmailElement[]): EmailElement[] =>
         elements
           .filter((el) => el.id !== dragId)
@@ -424,29 +553,14 @@ export default function App() {
               : el
           );
 
-      const insertIntoList = (elements: EmailElement[]): EmailElement[] => {
-        const result: EmailElement[] = [];
-        for (const el of elements) {
-          let next: EmailElement =
-            isContainerElement(el) && el.childElements
-              ? { ...el, childElements: insertIntoList(el.childElements) }
-              : el;
-          if (el.id === targetId && resolved === 'inside' && isContainerElement(next)) {
-            next = {
-              ...next,
-              childElements: [...(next.childElements || []), dragged],
-            };
-          }
-          if (el.id === targetId && resolved === 'before') result.push(dragged);
-          result.push(next);
-          if (el.id === targetId && resolved === 'after') result.push(dragged);
-        }
-        return result;
-      };
-
       return {
         ...prev,
-        elements: insertIntoList(removeFromList(prev.elements)),
+        elements: insertRelativeTo(
+          removeFromList(prev.elements),
+          targetId,
+          resolved,
+          dragged
+        ),
       };
     });
   };
@@ -531,15 +645,29 @@ export default function App() {
     setActivePresetId(OPEN_FILE_PRESET_ID);
     setSelectedElementId(null);
     setInspectorTab('design');
+    // Wrapping loose blocks isn't a failure — report it separately from
+    // anything that genuinely couldn't be read.
+    const migrationNote =
+      result.wrappedInSections > 0
+        ? ` ${result.wrappedInSections} loose block${
+            result.wrappedInSections === 1 ? '' : 's'
+          } ${
+            result.wrappedInSections === 1 ? 'was' : 'were'
+          } wrapped in a section, since blocks now live inside sections. The exported HTML is unchanged.`
+        : '';
+
     setNotice(
       result.warnings.length > 0
         ? {
             tone: 'warning',
             message: `Opened ${file.name}, but some of it couldn't be read: ${result.warnings.join(
               ' '
-            )}`,
+            )}${migrationNote}`,
           }
-        : { tone: 'success', message: `Opened ${file.name}.` }
+        : {
+            tone: 'success',
+            message: `Opened ${file.name}.${migrationNote}`,
+          }
     );
   };
 
@@ -555,16 +683,32 @@ export default function App() {
     setTemplate((prev) => ({ ...prev, name }));
   };
 
-  // Import Raw HTML
+  /**
+   * Import Raw HTML as a `custom-html` block. That isn't a container, so it
+   * can't go at the top level — it lands in the selected section, or in a new
+   * bare section of its own when there isn't one.
+   */
   const handleImportRawHtml = (rawHtml: string) => {
     const newEl = createNewElement('custom-html');
     if (newEl.type === 'custom-html') {
       newEl.html = rawHtml;
     }
-    setTemplate((prev) => ({
-      ...prev,
-      elements: [...prev.elements, newEl],
-    }));
+
+    if (addTarget) {
+      setTemplate((prev) => ({
+        ...prev,
+        elements: insertRelativeTo(prev.elements, addTarget.id, 'inside', newEl),
+      }));
+    } else {
+      const wrapper = createBareSection(
+        `sec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        [newEl]
+      );
+      setTemplate((prev) => ({
+        ...prev,
+        elements: [...prev.elements, wrapper],
+      }));
+    }
     setSelectedElementId(newEl.id);
   };
 
@@ -586,20 +730,13 @@ export default function App() {
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 font-sans text-slate-800">
       {/* Top Navbar */}
       <Navbar
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        activePresetId={activePresetId}
-        onSelectPreset={handleSelectPreset}
-        onOpenAddModal={() => setIsAddModalOpen(true)}
         onOpenImportModal={() => setIsImportModalOpen(true)}
         onExportHtml={() => setIsExportModalOpen(true)}
         onCopyHtml={handleCopyHtml}
-        onOpenNewTab={handleOpenNewTab}
         copied={copied}
         onNewNewsletter={handleNewNewsletter}
         onSaveTemplateFile={handleSaveTemplateFile}
         onOpenTemplateFile={() => fileInputRef.current?.click()}
-        openFileName={openFileName}
       />
 
       {/* Project file picker, opened from the Navbar */}
@@ -645,41 +782,56 @@ export default function App() {
             selectedElementCount={template.elements.length}
             templateName={template.name}
             onRenameTemplate={handleRenameTemplate}
-            addTargetLabel={
-              addTarget
-                ? addTarget.type === 'section'
-                  ? addTarget.label || 'Section'
-                  : 'Red Accent Block'
-                : null
-            }
+            activePresetId={activePresetId}
+            onSelectPreset={handleSelectPreset}
+            openFileName={openFileName}
+            addTargetLabel={addTarget ? addTarget.label || 'Section' : null}
             onClearAddTarget={() => handleSelectElement(null)}
+            onStartPaletteDrag={setPaletteDragType}
+            onEndPaletteDrag={() => setPaletteDragType(null)}
           />
         )}
 
-        {/* Center Canvas / Code View */}
-        {viewMode === 'code' ? (
-          <CodeEditor
-            htmlCode={emailHtml}
-            onCopy={handleCopyHtml}
-            copied={copied}
-            onDownload={handleDownloadHtml}
-          />
-        ) : (
-          <VisualCanvas
-            template={template}
-            selectedElementId={selectedElementId}
-            onSelectElement={handleSelectElement}
-            onUpdateElement={handleUpdateElement}
-            onDeleteElement={handleDeleteElement}
-            onDuplicateElement={handleDuplicateElement}
-            onMoveUp={handleMoveUp}
-            onMoveDown={handleMoveDown}
-            onReorderElement={handleReorderElement}
-            viewMode={viewMode}
-            onOpenNewTab={handleOpenNewTab}
-            onViewElementHtml={handleViewElementHtml}
-          />
-        )}
+        {/*
+          Center column: the view switch sits in its own strip above the
+          preview. It has to live out here rather than inside `VisualCanvas`,
+          because code view swaps that component out for `CodeEditor` and the
+          way back to Desktop is in the switch.
+        */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="bg-slate-100 px-4 pt-3 pb-1 flex items-center justify-center shrink-0">
+            <ViewModeToggle
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              onOpenNewTab={handleOpenNewTab}
+            />
+          </div>
+
+          {viewMode === 'code' ? (
+            <CodeEditor
+              htmlCode={emailHtml}
+              onCopy={handleCopyHtml}
+              copied={copied}
+              onDownload={handleDownloadHtml}
+            />
+          ) : (
+            <VisualCanvas
+              template={template}
+              selectedElementId={selectedElementId}
+              onSelectElement={handleSelectElement}
+              onUpdateElement={handleUpdateElement}
+              onDeleteElement={handleDeleteElement}
+              onDuplicateElement={handleDuplicateElement}
+              onMoveUp={handleMoveUp}
+              onMoveDown={handleMoveDown}
+              onReorderElement={handleReorderElement}
+              viewMode={viewMode}
+              onViewElementHtml={handleViewElementHtml}
+              paletteDragType={paletteDragType}
+              onDropNewElement={handleDropNewElement}
+            />
+          )}
+        </div>
 
         {/* Right Sidebar: Element Inspector Panel */}
         {viewMode !== 'code' && selectedElement && (
@@ -691,7 +843,6 @@ export default function App() {
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
             onClose={() => handleSelectElement(null)}
-            onAddChildToContainer={handleAddChildToContainer}
             fontFamily={template.settings.fontFamily}
             activeTab={inspectorTab}
             onChangeTab={setInspectorTab}
@@ -700,12 +851,6 @@ export default function App() {
       </div>
 
       {/* Modals */}
-      <AddElementModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSelectType={handleAddElement}
-      />
-
       <ImportHtmlModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}

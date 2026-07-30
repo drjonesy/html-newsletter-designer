@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { EmailElement, ElementType, SectionElement } from '../types';
+import { EmailElement, HeadingLevel, SectionElement } from '../types';
 import { renderElementToHtml } from '../utils/htmlGenerator';
 import { isContainerElement } from '../utils/elementHelpers';
 import {
@@ -8,7 +8,6 @@ import {
   ChevronDown,
   Trash2,
   Copy,
-  Palette,
   Upload,
   Bold,
   Italic,
@@ -25,7 +24,7 @@ import {
 
 export type InspectorTab = 'design' | 'html';
 
-/** "accent-section" -> "Accent Section", for use in prose. */
+/** "key-value" -> "Key Value", for use in prose. */
 function typeLabel(type: EmailElement['type']): string {
   return type
     .split('-')
@@ -363,60 +362,30 @@ const BORDER_PRESETS: { label: string; sides: Side[] }[] = [
   { label: 'Bottom', sides: ['bottom'] },
 ];
 
-interface AddChildButtonsProps {
-  parentId: string;
-  onAddChild: (parentId: string, type: ElementType) => void;
-  title: string;
-}
-
-const AddChildButtons: React.FC<AddChildButtonsProps> = ({
-  parentId,
-  onAddChild,
-  title,
-}) => {
-  const items: { type: ElementType; label: string }[] = [
-    { type: 'heading', label: '+ Heading' },
-    { type: 'paragraph', label: '+ Text Copy' },
-    { type: 'key-value', label: '+ Date / Info' },
-    { type: 'button', label: '+ CTA Button' },
-    { type: 'header-image', label: '+ Image' },
-    { type: 'quote', label: '+ Quote Box' },
-    { type: 'divider', label: '+ Divider' },
-    { type: 'section', label: '+ Section' },
-  ];
-
-  return (
-    <div className="pt-2 border-t border-slate-200 space-y-2">
-      <label className="font-semibold text-slate-700 block">{title}</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {items.map((item) => (
-          <button
-            key={item.type}
-            type="button"
-            onClick={() => onAddChild(parentId, item.type)}
-            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-[11px] text-slate-800 font-semibold text-left"
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-[10px] text-slate-500">
-        Blocks can also be dragged in and out of this section on the canvas.
-      </p>
-    </div>
-  );
-};
+/**
+ * Reminder that blocks come from the palette, not from here.
+ *
+ * The Inspector used to carry a grid of "+ Heading / + Paragraph" buttons;
+ * they duplicated the palette and gave the section two different ways to be
+ * filled. Dragging from the palette is now the one way in.
+ */
+const FillSectionHint: React.FC = () => (
+  <div className="pt-2 border-t border-slate-200">
+    <p className="text-[11px] text-slate-500 leading-relaxed">
+      Drag elements from the <strong>Add Elements</strong> panel onto this
+      section to fill it. While it's selected you can also just click them.
+    </p>
+  </div>
+);
 
 interface SectionEditorProps {
   element: SectionElement;
   onUpdateElement: (updated: EmailElement) => void;
-  onAddChild?: (parentId: string, type: ElementType) => void;
 }
 
 const SectionEditor: React.FC<SectionEditorProps> = ({
   element,
   onUpdateElement,
-  onAddChild,
 }) => {
   const hasBg = element.bgColor !== 'transparent';
 
@@ -666,13 +635,7 @@ const SectionEditor: React.FC<SectionEditorProps> = ({
         </div>
       </div>
 
-      {onAddChild && (
-        <AddChildButtons
-          parentId={element.id}
-          onAddChild={onAddChild}
-          title="Add Block Inside This Section:"
-        />
-      )}
+      <FillSectionHint />
     </div>
   );
 };
@@ -685,7 +648,6 @@ interface InspectorPanelProps {
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
   onClose: () => void;
-  onAddChildToContainer?: (parentId: string, type: ElementType) => void;
   /** Font stack used to generate this element's HTML in the HTML tab. */
   fontFamily: string;
   activeTab: InspectorTab;
@@ -700,7 +662,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onMoveUp,
   onMoveDown,
   onClose,
-  onAddChildToContainer,
   fontFamily,
   activeTab,
   onChangeTab,
@@ -712,7 +673,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && element.type === 'header-image') {
+    if (file && element.type === 'image') {
       const reader = new FileReader();
       reader.onload = (evt) => {
         if (evt.target?.result) {
@@ -837,8 +798,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       ) : (
       /* Editor Controls Form */
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-        {/* Header Image Editor */}
-        {element.type === 'header-image' && (
+        {/* Image Editor */}
+        {element.type === 'image' && (
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="font-semibold text-slate-700">Image Source (URL or File)</label>
@@ -944,14 +905,17 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   onChange={(e) =>
                     onUpdateElement({
                       ...element,
-                      level: e.target.value as 'h1' | 'h2' | 'h3',
+                      level: e.target.value as HeadingLevel,
                     })
                   }
                   className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
                 >
-                  <option value="h1">H1 (Large)</option>
-                  <option value="h2">H2 (Medium)</option>
-                  <option value="h3">H3 (Subhead)</option>
+                  <option value="h1">H1 (Largest)</option>
+                  <option value="h2">H2</option>
+                  <option value="h3">H3</option>
+                  <option value="h4">H4</option>
+                  <option value="h5">H5</option>
+                  <option value="h6">H6 (Smallest)</option>
                 </select>
               </div>
 
@@ -1181,7 +1145,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         )}
 
-        {/* CTA Button Editor */}
+        {/* Button Editor */}
         {element.type === 'button' && (
           <div className="space-y-3">
             <div className="space-y-1">
@@ -1267,101 +1231,20 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         )}
 
-        {/* Accent Section Wrapper Editor */}
-        {element.type === 'accent-section' && (
-          <div className="space-y-3">
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-900 text-xs">
-              <p className="font-bold mb-1 flex items-center gap-1.5">
-                <Palette className="w-3.5 h-3.5 text-red-700" />
-                Red Accent Line Section
-              </p>
-              <p className="text-[11px] text-red-800">
-                This block wraps child elements inside a clean vertical accent border on the left side, matching your Gmail email screenshot.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-700 flex justify-between">
-                <span>Left Border Color</span>
-                <span className="font-mono text-slate-500">{element.borderColor}</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={element.borderColor}
-                  onChange={(e) =>
-                    onUpdateElement({ ...element, borderColor: e.target.value })
-                  }
-                  className="w-8 h-8 rounded border-0 bg-transparent cursor-pointer"
-                />
-                <button
-                  type="button"
-                  onClick={() => onUpdateElement({ ...element, borderColor: '#b22222' })}
-                  className="text-[10px] px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 text-slate-700 font-semibold"
-                >
-                  Gmail Red (#b22222)
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Border Width (px)</label>
-                <input
-                  type="number"
-                  value={element.borderWidth}
-                  onChange={(e) =>
-                    onUpdateElement({
-                      ...element,
-                      borderWidth: Number(e.target.value),
-                    })
-                  }
-                  className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Padding Left (px)</label>
-                <input
-                  type="number"
-                  value={element.paddingLeft}
-                  onChange={(e) =>
-                    onUpdateElement({
-                      ...element,
-                      paddingLeft: Number(e.target.value),
-                    })
-                  }
-                  className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
-                />
-              </div>
-            </div>
-
-            {/* Quick Add nested element into this section */}
-            {onAddChildToContainer && (
-              <AddChildButtons
-                parentId={element.id}
-                onAddChild={onAddChildToContainer}
-                title="Add Item Inside Accent Line:"
-              />
-            )}
-          </div>
-        )}
-
         {/* Section Container Editor */}
         {element.type === 'section' && (
           <SectionEditor
             key={element.id}
             element={element}
             onUpdateElement={onUpdateElement}
-            onAddChild={onAddChildToContainer}
           />
         )}
 
-        {/* Quote / Scripture Editor */}
+        {/* Quote Editor */}
         {element.type === 'quote' && (
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Quote / Scripture</label>
+              <label className="font-semibold text-slate-700">Quote</label>
               <textarea
                 rows={3}
                 value={element.quote}
@@ -1394,7 +1277,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         )}
 
-        {/* Custom HTML block — the markup itself is edited in the HTML tab */}
+        {/* HTML Block — the markup itself is edited in the HTML tab */}
         {element.type === 'custom-html' && (
           <div className="space-y-3">
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">

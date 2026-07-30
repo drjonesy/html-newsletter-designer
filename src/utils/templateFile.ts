@@ -1,5 +1,13 @@
 import { ElementType, EmailElement, EmailSettings, NewsletterTemplate } from '../types';
-import { createNewElement, isContainerElement } from './elementHelpers';
+import {
+  convertLegacyAccentSection,
+  convertLegacyHeaderImage,
+  createNewElement,
+  isContainerElement,
+  LEGACY_ACCENT_TYPE,
+  LEGACY_HEADER_IMAGE_TYPE,
+  migrateToSections,
+} from './elementHelpers';
 import { BLANK_CANVAS_TEMPLATE } from './defaultTemplate';
 
 /**
@@ -18,7 +26,12 @@ import { BLANK_CANVAS_TEMPLATE } from './defaultTemplate';
  * could not load; additive optional fields don't need it.
  */
 export const TEMPLATE_FILE_FORMAT = 'html-newsletter-designer';
-export const TEMPLATE_FILE_VERSION = 1;
+/**
+ * v2 — `header-image` became the generic `image`. v1 files still load (the block
+ * is converted on read); a v1 build reading a v2 file would silently drop every
+ * image, so the bump makes it say so instead.
+ */
+export const TEMPLATE_FILE_VERSION = 2;
 export const TEMPLATE_FILE_EXTENSION = '.newsletter.json';
 
 export interface NewsletterFile {
@@ -30,9 +43,8 @@ export interface NewsletterFile {
 }
 
 const ELEMENT_TYPES = new Set<string>([
-  'header-image',
+  'image',
   'heading',
-  'accent-section',
   'section',
   'key-value',
   'paragraph',
@@ -75,7 +87,18 @@ export function serializeTemplateFile(
 }
 
 export type ParseTemplateFileResult =
-  | { status: 'ok'; template: NewsletterTemplate; warnings: string[] }
+  | {
+      status: 'ok';
+      template: NewsletterTemplate;
+      warnings: string[];
+      /**
+       * How many loose top-level blocks were wrapped in a section to satisfy
+       * the "blocks live inside sections" rule. 0 for anything saved by a
+       * build that already had it. Distinct from `warnings` — nothing failed,
+       * and the exported email is unchanged.
+       */
+      wrappedInSections: number;
+    }
   | { status: 'error'; error: string };
 
 function uniqueId(candidate: unknown, seen: Set<string>): string {
@@ -100,6 +123,14 @@ function normalizeElement(
   warnings: string[],
   seen: Set<string>
 ): EmailElement | null {
+  // A block type this build removed or renamed is converted rather than dropped
+  // — the check below would otherwise treat the author's work as unreadable.
+  if (isRecord(raw) && raw.type === LEGACY_ACCENT_TYPE) {
+    raw = convertLegacyAccentSection(raw);
+  } else if (isRecord(raw) && raw.type === LEGACY_HEADER_IMAGE_TYPE) {
+    raw = convertLegacyHeaderImage(raw);
+  }
+
   if (!isRecord(raw) || typeof raw.type !== 'string' || !ELEMENT_TYPES.has(raw.type)) {
     const label = isRecord(raw) && typeof raw.type === 'string' ? `"${raw.type}"` : 'with no type';
     warnings.push(`Skipped a block ${label} — this version of the designer doesn't have it.`);
@@ -228,9 +259,14 @@ export function parseTemplateFile(text: string): ParseTemplateFileResult {
     };
   }
 
+  // Files written before blocks were required to live in sections have loose
+  // top-level blocks; wrap them so the editor's rules hold for every template.
+  const migrated = migrateToSections(elements);
+
   return {
     status: 'ok',
     warnings,
+    wrappedInSections: migrated.wrapped,
     template: {
       id: typeof templateRaw.id === 'string' ? templateRaw.id : `template-${Date.now()}`,
       name:
@@ -238,7 +274,7 @@ export function parseTemplateFile(text: string): ParseTemplateFileResult {
           ? templateRaw.name
           : 'Untitled Newsletter',
       settings: normalizeSettings(templateRaw.settings, warnings),
-      elements,
+      elements: migrated.elements,
     },
   };
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ElementType, EmailSettings } from '../types';
+import { isContainerType } from '../utils/elementHelpers';
 import {
   Image,
   Type,
@@ -9,7 +10,6 @@ import {
   Quote,
   Minus,
   Code,
-  Layout,
   Plus,
   Settings,
   ChevronDown,
@@ -17,6 +17,7 @@ import {
   Palette,
   Square,
   CornerDownRight,
+  GripVertical,
 } from 'lucide-react';
 
 interface SidebarElementsProps {
@@ -26,12 +27,21 @@ interface SidebarElementsProps {
   selectedElementCount: number;
   templateName: string;
   onRenameTemplate: (name: string) => void;
+  /** Preset picker, sitting above the tabs. */
+  activePresetId: string;
+  onSelectPreset: (presetId: string) => void;
+  /** Name of the project file in play, shown as an option in that picker. */
+  openFileName: string | null;
   /**
-   * Name of the section new blocks will drop into, or null for the end of the
-   * email. Set whenever a container — or something inside one — is selected.
+   * Name of the section a clicked block will drop into, or null when nothing
+   * is selected. Set whenever a container — or something inside one — is
+   * selected.
    */
   addTargetLabel?: string | null;
   onClearAddTarget?: () => void;
+  /** Palette drag lifecycle; the canvas resolves where the block lands. */
+  onStartPaletteDrag?: (type: ElementType) => void;
+  onEndPaletteDrag?: () => void;
 }
 
 export const SidebarElements: React.FC<SidebarElementsProps> = ({
@@ -41,11 +51,17 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
   selectedElementCount,
   templateName,
   onRenameTemplate,
+  activePresetId,
+  onSelectPreset,
+  openFileName,
   addTargetLabel,
   onClearAddTarget,
+  onStartPaletteDrag,
+  onEndPaletteDrag,
 }) => {
   const [activeTab, setActiveTab] = useState<'elements' | 'settings'>('elements');
   const [accentOpen, setAccentOpen] = useState(true);
+  const [draggingType, setDraggingType] = useState<ElementType | null>(null);
 
   const elementCategories = [
     {
@@ -57,24 +73,16 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
       badge: 'Container',
     },
     {
-      type: 'accent-section' as ElementType,
-      title: 'Red Accent Block',
-      desc: 'Container with left colored border (Gmail study style)',
-      icon: Layout,
-      color: 'bg-red-50 text-red-700 border-red-200',
-      badge: 'Popular',
-    },
-    {
-      type: 'header-image' as ElementType,
-      title: 'Header Logo / Banner',
-      desc: 'Top brand image or banner (e.g. JH Outback San Diego)',
+      type: 'image' as ElementType,
+      title: 'Image',
+      desc: 'Any image — logo, banner, photo — optionally linked',
       icon: Image,
       color: 'bg-blue-50 text-blue-700 border-blue-200',
     },
     {
       type: 'heading' as ElementType,
-      title: 'Section Heading',
-      desc: 'Large title or subtitle with letter spacing',
+      title: 'Heading',
+      desc: 'Title or subtitle, H1–H6, with letter spacing',
       icon: Type,
       color: 'bg-slate-100 text-slate-700 border-slate-200',
     },
@@ -94,15 +102,15 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
     },
     {
       type: 'button' as ElementType,
-      title: 'CTA Button',
-      desc: 'Red call-to-action button (PDF read & print link)',
+      title: 'Button',
+      desc: 'Call-to-action button with its own link and colours',
       icon: MousePointerClick,
       color: 'bg-red-50 text-red-700 border-red-200',
     },
     {
       type: 'quote' as ElementType,
-      title: 'Quote / Scripture Box',
-      desc: 'Highlighted quote or scripture reference box',
+      title: 'Quote',
+      desc: 'Highlighted quote box with an accent rule',
       icon: Quote,
       color: 'bg-amber-50 text-amber-700 border-amber-200',
     },
@@ -115,7 +123,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
     },
     {
       type: 'custom-html' as ElementType,
-      title: 'Custom HTML Block',
+      title: 'HTML Block',
       desc: 'Paste raw HTML table or custom elements',
       icon: Code,
       color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -124,8 +132,30 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
 
   return (
     <aside className="w-full lg:w-80 bg-white border-r border-slate-200 flex flex-col h-full text-slate-800">
+      {/* Preset / open-file picker */}
+      <div className="bg-slate-50 border-b border-slate-200 px-3 pt-4 pb-3">
+        <label
+          htmlFor="template-preset"
+          className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5"
+        >
+          Template
+        </label>
+        <select
+          id="template-preset"
+          value={activePresetId}
+          onChange={(e) => onSelectPreset(e.target.value)}
+          className="w-full bg-white text-xs font-semibold text-slate-700 border border-slate-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer shadow-xs hover:border-slate-300"
+        >
+          {openFileName && (
+            <option value="__open-file__">📄 {openFileName}</option>
+          )}
+          <option value="blank">Blank Canvas</option>
+          <option value="announcement">General Announcement</option>
+        </select>
+      </div>
+
       {/* Sidebar Header Tabs */}
-      <div className="flex border-b border-slate-200 bg-slate-50 p-1.5 pt-4">
+      <div className="flex border-b border-slate-200 bg-slate-50 p-1.5">
         <button
           onClick={() => setActiveTab('elements')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold rounded-md transition-all cursor-pointer ${
@@ -158,12 +188,14 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
               Add HTML Elements
             </h3>
             <p className="text-[11px] text-slate-500 mb-3">
-              Click any element below to insert it into your newsletter template.
+              Drag an element onto a section in the canvas. Every block lives
+              inside a section — add a <strong>Section</strong> first, then fill
+              it.
             </p>
           </div>
 
-          {/* Where the next click will drop the block */}
-          {addTargetLabel && (
+          {/* Where a *clicked* block will land. Dragging ignores this. */}
+          {addTargetLabel ? (
             <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-900">
               <CornerDownRight className="w-3.5 h-3.5 text-red-700 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
@@ -171,7 +203,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
                   Adding into “{addTargetLabel}”
                 </p>
                 <p className="text-[10px] text-red-800/80">
-                  New blocks go inside this section.
+                  Clicking a block below puts it in this section.
                 </p>
               </div>
               {onClearAddTarget && (
@@ -179,22 +211,52 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
                   type="button"
                   onClick={onClearAddTarget}
                   className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-200 bg-white/70 hover:bg-white text-red-800 shrink-0 cursor-pointer"
-                  title="Deselect so new blocks go at the end of the email"
+                  title="Deselect this section"
                 >
                   Clear
                 </button>
               )}
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">
+              <MousePointerClick className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+              <p className="text-[10px] leading-relaxed">
+                No section selected. Drag a block onto a section, or select a
+                section first to add by clicking.
+              </p>
             </div>
           )}
 
           <div className="space-y-2">
             {elementCategories.map((item) => {
               const Icon = item.icon;
+              const isDragging = draggingType === item.type;
               return (
                 <button
                   key={item.type}
+                  draggable
+                  onDragStart={(e) => {
+                    // Some payload is required or the drag never starts.
+                    e.dataTransfer.setData('text/plain', item.type);
+                    e.dataTransfer.effectAllowed = 'copy';
+                    setDraggingType(item.type);
+                    onStartPaletteDrag?.(item.type);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingType(null);
+                    onEndPaletteDrag?.();
+                  }}
                   onClick={() => onAddElement(item.type)}
-                  className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100/80 transition-all flex items-start gap-3 group cursor-pointer shadow-2xs"
+                  title={
+                    isContainerType(item.type)
+                      ? 'Drag onto the canvas, or click to add'
+                      : 'Drag onto a section, or select a section and click'
+                  }
+                  className={`w-full text-left p-3 rounded-lg border transition-all flex items-start gap-3 group shadow-2xs cursor-grab active:cursor-grabbing ${
+                    isDragging
+                      ? 'opacity-40 border-red-300 bg-red-50'
+                      : 'border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100/80'
+                  }`}
                 >
                   <div
                     className={`p-2 rounded-md border ${item.color} group-hover:scale-105 transition-transform`}
@@ -216,7 +278,7 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
                       {item.desc}
                     </p>
                   </div>
-                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-red-700 self-center" />
+                  <GripVertical className="w-4 h-4 text-slate-300 group-hover:text-red-700 self-center shrink-0" />
                 </button>
               );
             })}
