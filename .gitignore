@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.DS_Store
+
+# Lockfiles from other package managers — this project is pnpm-only.
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,5 @@
+# pnpm 11 reads install settings from this file rather than package.json.
+# esbuild ships a native binary and needs its postinstall script to run,
+# otherwise `vite build` fails resolving the platform binary.
+allowBuilds:
+  esbuild: true
