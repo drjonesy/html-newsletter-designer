@@ -270,12 +270,31 @@ export function createNewElement(type: ElementType): EmailElement {
         type: 'paragraph',
         label: 'Paragraph Text',
         content:
-          'Add your email message content here. You can use <b>bold text</b>, <font color="#b22222">colored text</font>, or <a href="#" style="color:#b22222">links</a>.',
+          'Add your email message content here. Select any text on the canvas to make it <strong>bold</strong>, <em>italic</em>, or <span style="color:#b22222;">coloured</span> — press Enter to start a new paragraph.',
         color: '#333333',
         fontSize: 16,
         fontWeight: 'normal',
         fontStyle: 'normal',
         lineHeight: 1.6,
+        marginTop: 8,
+        marginBottom: 16,
+      };
+
+    case 'list':
+      return {
+        id,
+        type: 'list',
+        label: 'List',
+        ordered: false,
+        items: ['First item', 'Second item', 'Third item'],
+        marker: 'disc',
+        color: '#333333',
+        fontSize: 16,
+        lineHeight: 1.6,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        indent: 24,
+        itemSpacing: 6,
         marginTop: 8,
         marginBottom: 16,
       };

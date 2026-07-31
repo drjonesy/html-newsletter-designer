@@ -4,6 +4,7 @@ export type ElementType =
   | 'section'
   | 'key-value'
   | 'paragraph'
+  | 'list'
   | 'button'
   | 'divider'
   | 'quote'
@@ -64,13 +65,58 @@ export interface KeyValueElement extends BaseElement {
 
 export interface ParagraphElement extends BaseElement {
   type: 'paragraph';
-  content: string; // HTML allowed (<b>, <span>, <font>, <a>)
+  /**
+   * Rich text as HTML: `<strong>`, `<em>`, `<u>`, `<span style>`, `<a>`, `<br>`
+   * and `<p>` for paragraph breaks.
+   *
+   * Written either by hand in the Inspector or by the canvas's WYSIWYG toolbar,
+   * which passes everything through `sanitizeRichHtml` first — see
+   * `utils/richText.ts` for the tags and style properties that survive.
+   */
+  content: string;
   color: string;
   fontSize: number;
   /** Optional — applies to the whole block; inline <b>/<em> in `content` still work. */
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
   lineHeight: number;
+  marginTop: number;
+  marginBottom: number;
+}
+
+/**
+ * `list-style-type` values offered for a list. The first four suit `<ul>`, the
+ * rest `<ol>` — nothing stops the other pairing, but the Inspector only offers
+ * the ones that match the current `ordered` setting.
+ */
+export type ListMarker =
+  | 'disc'
+  | 'circle'
+  | 'square'
+  | 'none'
+  | 'decimal'
+  | 'lower-alpha'
+  | 'upper-alpha'
+  | 'lower-roman'
+  | 'upper-roman';
+
+export interface ListElement extends BaseElement {
+  type: 'list';
+  /** `<ol>` when true, `<ul>` when false. */
+  ordered: boolean;
+  /** One entry per `<li>`. Each holds rich text, same subset as a paragraph. */
+  items: string[];
+  marker: ListMarker;
+  color: string;
+  fontSize: number;
+  lineHeight: number;
+  /** Optional — applies to the whole list; inline emphasis in items still works. */
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  /** Left padding on the list, i.e. how far the markers sit from the edge. */
+  indent: number;
+  /** Gap below each item. */
+  itemSpacing: number;
   marginTop: number;
   marginBottom: number;
 }
@@ -161,6 +207,7 @@ export type EmailElement =
   | HeadingElement
   | KeyValueElement
   | ParagraphElement
+  | ListElement
   | ButtonElement
   | SectionElement
   | DividerElement

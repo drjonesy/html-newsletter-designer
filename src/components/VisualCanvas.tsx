@@ -5,8 +5,10 @@ import {
   ContainerElement,
   ElementType,
 } from '../types';
-import { renderElementToHtml } from '../utils/htmlGenerator';
+import { EditMode, renderElementToHtml } from '../utils/htmlGenerator';
 import { canSitAtTopLevel, isContainerElement } from '../utils/elementHelpers';
+import { applyColor, applyFontSize, sanitizeRichHtml } from '../utils/richText';
+import { RichCommand, RichTextToolbar } from './RichTextToolbar';
 import {
   ChevronUp,
   ChevronDown,
@@ -22,6 +24,7 @@ import {
 const INLINE_EDITABLE_TYPES: EmailElement['type'][] = [
   'heading',
   'paragraph',
+  'list',
   'key-value',
   'quote',
   'button',
@@ -89,9 +92,16 @@ function placeCaretAtPoint(x: number, y: number) {
   return true;
 }
 
-function selectAllIn(node: HTMLElement) {
+/**
+ * Fallback for when there's no click to aim at: editing that starts
+ * programmatically (a list item split off the one above) or a click whose
+ * position the browser couldn't resolve. The caret goes to the end rather than
+ * selecting everything, so the first keystroke never wipes the field.
+ */
+function placeCaretAtEnd(node: HTMLElement) {
   const range = document.createRange();
   range.selectNodeContents(node);
+  range.collapse(false);
   const selection = window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
@@ -111,11 +121,22 @@ interface BlockBodyProps {
   onStartEdit: (field: string) => void;
   onCommit: (field: string, value: string) => void;
   onCancelEdit: () => void;
+  /**
+   * Structural edits only a list can do: Enter splits the item being typed into
+   * a new one below it, Backspace in an emptied item removes it. `value` is the
+   * item's committed text at the moment of the key press.
+   */
+  onEditItem?: (
+    field: string,
+    action: 'split' | 'remove',
+    value: string
+  ) => void;
 }
 
 /**
  * Renders one block's generated HTML and turns the clicked `[data-edit-field]`
- * span into a contenteditable region.
+ * node into a contenteditable region — with a formatting toolbar over it when
+ * that field holds rich text.
  *
  * Edits are committed on blur rather than on every keystroke: committing writes
  * to `template`, which regenerates this block's HTML and replaces these DOM
@@ -128,12 +149,27 @@ const BlockBody: React.FC<BlockBodyProps> = ({
   onStartEdit,
   onCommit,
   onCancelEdit,
+  onEditItem,
 }) => {
+  /** The editor as a whole, text plus toolbar — used to read focus moves. */
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ x: number; y: number } | null>(null);
   /** What to put back if the edit is abandoned with Escape. */
   const restorePoint = useRef<{ html: string; wasEmpty: boolean } | null>(null);
   const abandonEdit = useRef(false);
+  /**
+   * The last selection made inside the field. The toolbar's colour picker is a
+   * native `<input type="color">`, which can't open without taking the
+   * selection with it, so every command re-applies this first.
+   */
+  const savedRange = useRef<Range | null>(null);
+  const [editMode, setEditMode] = useState<EditMode | null>(null);
+  /** Viewport position of the formatting bar; null while it's not shown. */
+  const [toolbarPos, setToolbarPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const activeNode = () =>
     editingField
@@ -142,13 +178,25 @@ const BlockBody: React.FC<BlockBodyProps> = ({
         ) ?? null
       : null;
 
+  /** What the generator said this field is — see `EditMode` in htmlGenerator. */
+  const modeOf = (node: HTMLElement): EditMode =>
+    node.dataset.editRich !== '1'
+      ? 'plain'
+      : node.dataset.editEnter === 'item'
+      ? 'item'
+      : 'rich';
+
   useEffect(() => {
     const node = activeNode();
-    if (!node) return;
+    if (!node) {
+      setEditMode(null);
+      return;
+    }
 
     const wasEmpty = node.dataset.editEmpty === '1';
     restorePoint.current = { html: node.innerHTML, wasEmpty };
     abandonEdit.current = false;
+    savedRange.current = null;
 
     // Clear the "Click to edit…" filler so the user types into an empty field.
     if (wasEmpty) {
@@ -161,14 +209,78 @@ const BlockBody: React.FC<BlockBodyProps> = ({
     node.spellcheck = true;
     node.focus();
 
+    /*
+      Ask the browser for tags rather than styles (`<b>`, not
+      `<span style="font-weight:700">`), and for a `<p>` when Enter is pressed.
+      Neither is honoured by every engine — `sanitizeRichHtml` normalises
+      whatever actually comes out — but starting from the right shape means
+      less rewriting and markup that reads the way the user expects.
+    */
+    document.execCommand('styleWithCSS', false, 'false');
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+
     const caret = pendingCaret.current;
     pendingCaret.current = null;
-    if (!caret || !placeCaretAtPoint(caret.x, caret.y)) selectAllIn(node);
+    if (!caret || !placeCaretAtPoint(caret.x, caret.y)) placeCaretAtEnd(node);
+
+    setEditMode(modeOf(node));
+
+    /*
+      Track the selection for as long as the field is being edited. Toolbar
+      buttons preserve it themselves by cancelling their `mousedown`, but the
+      colour picker can't, so the last known range has to be recoverable.
+    */
+    const remember = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (node.contains(range.commonAncestorContainer)) {
+        savedRange.current = range.cloneRange();
+      }
+    };
+    remember();
+    document.addEventListener('selectionchange', remember);
 
     return () => {
+      document.removeEventListener('selectionchange', remember);
       node.contentEditable = 'false';
     };
   }, [editingField, html]);
+
+  /*
+    Keep the formatting bar over the field it belongs to. It's positioned
+    against the viewport, so it has to be re-measured whenever the canvas
+    scrolls under it — `capture` is what catches a scroll on the canvas's own
+    container rather than on the window.
+  */
+  useEffect(() => {
+    if (!editMode || editMode === 'plain') {
+      setToolbarPos(null);
+      return;
+    }
+
+    const place = () => {
+      const node = activeNode();
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      // Bar plus the gap under it. Above the text by default, below when the
+      // field is near the top of the window and there's no room.
+      const clearance = 44;
+      const above = rect.top - clearance;
+      setToolbarPos({
+        top: above > 8 ? above : Math.min(rect.bottom + 8, window.innerHeight - 48),
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 380)),
+      });
+    };
+
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [editMode, editingField, html]);
 
   const startEditFromEvent = (e: React.MouseEvent) => {
     if (!clickToEdit) return;
@@ -190,9 +302,27 @@ const BlockBody: React.FC<BlockBodyProps> = ({
     startEditFromEvent(e);
   };
 
-  const handleBlur = () => {
+  const handleBlur = (e: React.FocusEvent) => {
     const node = activeNode();
     if (!editingField || !node) return;
+
+    /*
+      Splitting a list item re-renders the block, which destroys the field the
+      user was in — and some browsers report that as a blur. The event is about
+      a field that no longer exists, so committing it would write stale text and
+      cancel the edit that just moved to the new row.
+    */
+    const target = e.target as HTMLElement;
+    if (target !== node && target.hasAttribute?.('data-edit-field')) return;
+
+    /*
+      Moving between the text and the toolbar above it isn't leaving the editor
+      either — committing there would tear down the very field the user is about
+      to format. Focus landing outside this wrapper (or nowhere at all) is the
+      real exit.
+    */
+    const next = e.relatedTarget as Node | null;
+    if (next && wrapperRef.current?.contains(next)) return;
 
     if (abandonEdit.current) {
       const restore = restorePoint.current;
@@ -207,12 +337,14 @@ const BlockBody: React.FC<BlockBodyProps> = ({
       return;
     }
 
-    const isRich = node.dataset.editRich === '1';
+    const mode = modeOf(node);
     // textContent, not innerText: innerText returns the *rendered* text, so a
-    // heading styled `text-transform:uppercase` would save back SHOUTING.
-    const value = isRich
-      ? node.innerHTML
-      : (node.textContent || '')
+    // heading styled `text-transform:uppercase` would save back SHOUTING. Rich
+    // fields go through the sanitizer instead — see utils/richText.ts.
+    const value =
+      mode !== 'plain'
+        ? sanitizeRichHtml(node.innerHTML, { allowParagraphs: mode === 'rich' })
+        : (node.textContent || '')
           .replace(/\u00a0/g, ' ')
           .replace(/\s*\n\s*/g, ' ')
           .trim();
@@ -220,22 +352,85 @@ const BlockBody: React.FC<BlockBodyProps> = ({
     onCommit(editingField, value);
   };
 
+  /** Runs one toolbar action against the field's own selection. */
+  const handleCommand = (command: RichCommand) => {
+    const node = activeNode();
+    if (!node) return;
+
+    node.focus();
+    const range = savedRange.current;
+    if (range && node.contains(range.commonAncestorContainer)) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+
+    switch (command.kind) {
+      case 'bold':
+        document.execCommand('bold');
+        break;
+      case 'italic':
+        document.execCommand('italic');
+        break;
+      case 'underline':
+        document.execCommand('underline');
+        break;
+      case 'color':
+        applyColor(command.value);
+        break;
+      case 'fontSize':
+        applyFontSize(node, command.value);
+        break;
+      case 'clear':
+        document.execCommand('removeFormat');
+        break;
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!editingField) return;
     const node = activeNode();
+    if (!node) return;
 
     if (e.key === 'Escape') {
       e.preventDefault();
       abandonEdit.current = true;
-      node?.blur();
+      node.blur();
       return;
     }
 
+    const enterMode = node.dataset.editEnter;
+
     if (e.key === 'Enter') {
       e.preventDefault();
-      // Rich fields keep multi-line support via <br>; single-line fields save.
-      if (node?.dataset.editRich === '1') document.execCommand('insertLineBreak');
-      else node?.blur();
+      if (e.shiftKey && enterMode) {
+        // The escape hatch in both rich shapes: a soft line break where Enter
+        // would otherwise start a new paragraph or a new item.
+        document.execCommand('insertLineBreak');
+      } else if (enterMode === 'item') {
+        onEditItem?.(
+          editingField,
+          'split',
+          sanitizeRichHtml(node.innerHTML, { allowParagraphs: false })
+        );
+      } else if (enterMode === 'rich') {
+        document.execCommand('insertParagraph');
+      } else {
+        // A single-line field has nowhere to put a break, so Enter saves.
+        node.blur();
+      }
+      return;
+    }
+
+    // Backspace in an item the user has emptied removes the row, so an item
+    // added by mistake doesn't need a trip to the Inspector.
+    if (
+      e.key === 'Backspace' &&
+      enterMode === 'item' &&
+      !(node.textContent || '').trim()
+    ) {
+      e.preventDefault();
+      onEditItem?.(editingField, 'remove', '');
     }
   };
 
@@ -251,15 +446,28 @@ const BlockBody: React.FC<BlockBodyProps> = ({
   };
 
   return (
-    <div
-      ref={rootRef}
-      onDoubleClick={startEditFromEvent}
-      onClick={handleClick}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    // The toolbar can't live inside the node holding `dangerouslySetInnerHTML`,
+    // so it's a sibling — and `onBlur` sits out here, where it can see focus
+    // moving between the two as staying put.
+    <div ref={wrapperRef} className="relative" onBlur={handleBlur}>
+      {editMode && editMode !== 'plain' && toolbarPos && (
+        <RichTextToolbar
+          onCommand={handleCommand}
+          position={toolbarPos}
+          hint={
+            editMode === 'item' ? 'Enter adds an item' : 'Enter starts a paragraph'
+          }
+        />
+      )}
+      <div
+        ref={rootRef}
+        onDoubleClick={startEditFromEvent}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   );
 };
 
@@ -516,11 +724,69 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     </button>
   );
 
+  /**
+   * Writes a committed field back onto its element.
+   *
+   * `field` is a property name, or `name.index` for one entry of an array of
+   * strings — the only nesting the generator's editable fields use, and the
+   * only one this understands. List items are why it exists.
+   */
   const handleCommitField = (el: EmailElement, field: string, value: string) => {
     setEditing(null);
-    const current = (el as unknown as Record<string, unknown>)[field];
-    if (current === value) return;
-    onUpdateElement({ ...el, [field]: value } as EmailElement);
+    const [name, index] = field.split('.');
+    const record = el as unknown as Record<string, unknown>;
+
+    if (index === undefined) {
+      if (record[name] === value) return;
+      onUpdateElement({ ...el, [name]: value } as EmailElement);
+      return;
+    }
+
+    const at = Number(index);
+    const list = record[name];
+    if (!Array.isArray(list) || !Number.isInteger(at) || list[at] === value) {
+      return;
+    }
+    const next = [...list];
+    next[at] = value;
+    onUpdateElement({ ...el, [name]: next } as EmailElement);
+  };
+
+  /**
+   * Enter and Backspace inside a list item, which change the *shape* of the
+   * list rather than one field's text — so they can't go through
+   * `handleCommitField`. Editing moves to the row the user should now be in,
+   * which is what makes typing a whole list without leaving the canvas work.
+   */
+  const handleEditItem = (
+    el: EmailElement,
+    field: string,
+    action: 'split' | 'remove',
+    value: string
+  ) => {
+    const [name, index] = field.split('.');
+    if (el.type !== 'list' || name !== 'items') return;
+    const at = Number(index);
+    if (!Number.isInteger(at)) return;
+
+    // The generator draws one row for a list with no items; treat that row as
+    // real so typing into it lands somewhere.
+    const items = el.items?.length ? [...el.items] : [''];
+
+    if (action === 'remove') {
+      // The last row stays — a list with nothing in it can't be clicked back
+      // into, and deleting the block is what the badge is for.
+      if (items.length <= 1) return;
+      items.splice(at, 1);
+      onUpdateElement({ ...el, items });
+      setEditing({ id: el.id, field: `items.${Math.max(0, at - 1)}` });
+      return;
+    }
+
+    items[at] = value;
+    items.splice(at + 1, 0, '');
+    onUpdateElement({ ...el, items });
+    setEditing({ id: el.id, field: `items.${at + 1}` });
   };
 
   /**
@@ -753,7 +1019,11 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
             {INLINE_EDITABLE_TYPES.includes(el.type) && (
               <span className="text-[11px] font-normal text-slate-400 border-l border-slate-200 pl-2">
                 {isEditing
-                  ? 'Enter or click away to save'
+                  ? // Enter does something else entirely in a rich field, so
+                    // clicking away is the save it can always be told about.
+                    editing.field === 'content' || editing.field.startsWith('items.')
+                    ? 'Click away to save'
+                    : 'Enter or click away to save'
                   : isSelected
                   ? 'Click text to edit it'
                   : 'Click to select'}
@@ -774,6 +1044,9 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
           }}
           onCommit={(field, value) => handleCommitField(el, field, value)}
           onCancelEdit={() => setEditing(null)}
+          onEditItem={(field, action, value) =>
+            handleEditItem(el, field, action, value)
+          }
         />
       </div>
     );

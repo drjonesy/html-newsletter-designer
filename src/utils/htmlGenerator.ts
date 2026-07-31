@@ -23,28 +23,47 @@ export interface RenderOptions {
 }
 
 /**
+ * How a field behaves once the user is typing in it.
+ *
+ * - `plain` — one line of text, committed as `textContent`. Enter saves.
+ * - `rich`  — a block of formatted text, committed as sanitized HTML. The
+ *   formatting toolbar appears, and Enter starts a new paragraph.
+ * - `item`  — one entry of a list: formatted like `rich`, but a single line, so
+ *   Enter makes the *next* item instead of a paragraph.
+ */
+export type EditMode = 'plain' | 'rich' | 'item';
+
+/**
  * Tags a text field for inline editing on the canvas. Returns `value` untouched
  * unless `opts.editable` is set, so the exported email HTML is byte-identical
  * to what it was before inline editing existed.
  *
  * `field` must be the element property name — VisualCanvas writes the edited
- * text straight back to `element[field]`.
+ * text straight back to `element[field]`. A field holding one entry of an array
+ * uses `name.index` (`items.2`), which is the one nesting the writer supports.
+ *
+ * A `rich` field is emitted as a `<div>`: paragraph breaks are block-level, and
+ * a browser asked to put a `<p>` inside a `<span>` will do something else
+ * instead.
  */
 function editableField(
   value: string,
   field: string,
   opts: RenderOptions | undefined,
-  rich = false
+  mode: EditMode = 'plain'
 ): string {
   if (!opts?.editable) return value;
 
-  // An empty field would collapse to a zero-width span with nothing to click.
+  // An empty field would collapse to a zero-width box with nothing to click.
   const isEmpty = value.trim().length === 0;
   const shown = isEmpty ? 'Click to edit…' : value;
+  const tag = mode === 'rich' ? 'div' : 'span';
 
-  return `<span data-edit-field="${field}"${rich ? ' data-edit-rich="1"' : ''}${
+  return `<${tag} data-edit-field="${field}"${
+    mode === 'plain' ? '' : ` data-edit-rich="1" data-edit-enter="${mode}"`
+  }${
     isEmpty ? ' data-edit-empty="1" style="opacity:0.4;"' : ''
-  }>${shown}</span>`;
+  }>${shown}</${tag}>`;
 }
 
 export function renderElementToHtml(
@@ -99,14 +118,47 @@ export function renderElementToHtml(
     case 'paragraph': {
       const weight = element.fontWeight ?? 'normal';
       const style = element.fontStyle ?? 'normal';
-      const content = wrapEmphasis(
-        editableField(element.content, 'content', opts, true),
-        weight === 'bold',
-        style === 'italic'
-      );
+      /*
+        The editable branch skips `wrapEmphasis`: whole-block bold/italic is
+        already on the wrapper's inline style, and the tags are only there for
+        Outlook — which never sees the canvas. Wrapping would also put the
+        editable <div> inside a <strong>, where a paragraph break can't go.
+      */
+      const content = opts?.editable
+        ? editableField(element.content, 'content', opts, 'rich')
+        : wrapEmphasis(element.content, weight === 'bold', style === 'italic');
       return `<div style="font-size:${element.fontSize}px; line-height:${element.lineHeight}; color:${element.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily}; font-weight:${weight}; font-style:${style};">
   ${content}
 </div>`;
+    }
+
+    case 'list': {
+      const Tag = element.ordered ? 'ol' : 'ul';
+      const weight = element.fontWeight ?? 'normal';
+      const style = element.fontStyle ?? 'normal';
+      // A list with nothing in it still needs one row, or there'd be nothing
+      // on the canvas to click into.
+      const items = element.items?.length ? element.items : [''];
+
+      const rows = items
+        .map((item, i) => {
+          // Same split as `paragraph`: the semantic tags are Outlook's belt for
+          // whole-block emphasis, and Outlook never sees the editable branch.
+          const body = opts?.editable
+            ? editableField(item, `items.${i}`, opts, 'item')
+            : wrapEmphasis(item, weight === 'bold', style === 'italic');
+          return `    <li style="margin:0 0 ${element.itemSpacing}px 0; padding:0;">${body}</li>`;
+        })
+        .join('\n');
+
+      /*
+        `padding-left` rather than `margin-left`: Outlook's Word engine indents
+        lists with padding and ignores the margin, so stating both would double
+        the indent there.
+      */
+      return `<${Tag} style="margin:${element.marginTop}px 0 ${element.marginBottom}px 0; padding:0 0 0 ${element.indent}px; color:${element.color}; font-size:${element.fontSize}px; line-height:${element.lineHeight}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; list-style-type:${element.marker};">
+${rows}
+</${Tag}>`;
     }
 
     case 'button': {

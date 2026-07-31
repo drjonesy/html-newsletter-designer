@@ -4,6 +4,7 @@ import { isContainerType } from '../utils/elementHelpers';
 import {
   Image,
   Type,
+  List,
   ListOrdered,
   FileText,
   MousePointerClick,
@@ -98,6 +99,13 @@ export const SidebarElements: React.FC<SidebarElementsProps> = ({
       title: 'Paragraph / Text',
       desc: 'Formatted body copy with scripture references',
       icon: FileText,
+      color: 'bg-slate-100 text-slate-700 border-slate-200',
+    },
+    {
+      type: 'list' as ElementType,
+      title: 'List',
+      desc: 'Bulleted or numbered list of items',
+      icon: List,
       color: 'bg-slate-100 text-slate-700 border-slate-200',
     },
     {

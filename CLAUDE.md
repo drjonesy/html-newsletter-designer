@@ -31,7 +31,13 @@ Without it `pnpm build` fails on a missing platform binary. Do not delete it.
 ## Stack
 
 React 19 · Vite 6 · Tailwind CSS 4 (via `@tailwindcss/vite`, no config file) · TypeScript
-(`noEmit`) · lucide-react for icons. `motion` is installed but not currently imported.
+(`noEmit`) · lucide-react for icons · [Lexical](https://lexical.dev/) for the Inspector's
+rich-text editor (`lexical`, `@lexical/react`, `@lexical/html`, `@lexical/selection`,
+`@lexical/link`, `@lexical/utils`). `motion` is installed but not currently imported.
+
+Lexical is the only heavyweight dependency — it roughly doubles the bundle. It earns that
+by editing *one* thing: a block's rich text. Nothing else in the app should be rebuilt on
+it, and the canvas keeps its own lighter `contenteditable` editing.
 
 ## Architecture
 
@@ -88,8 +94,8 @@ Miss one and `pnpm lint` will usually catch it, because the switches are exhaust
 the union.
 
 If the new type has text the user should be able to type over on the canvas, wrap that
-text in `editableField(value, 'fieldName', opts)` in its generator case and add the type to
-`INLINE_EDITABLE_TYPES` in `VisualCanvas.tsx` — see *Inline editing* below.
+text in `editableField(value, 'fieldName', opts, mode)` in its generator case and add the
+type to `INLINE_EDITABLE_TYPES` in `VisualCanvas.tsx` — see *Inline editing* below.
 
 ### Nesting
 
@@ -133,24 +139,140 @@ React-based renderer for a block.
 ### Inline editing (WYSIWYG)
 
 `renderElementToHtml` takes an optional third argument, `{ editable: true }`, passed only
-by `VisualCanvas`. It wraps each user-typeable field in
-`<span data-edit-field="<propName>">` (plus `data-edit-rich="1"` where the field holds
-HTML, and `data-edit-empty="1"` on a blank field so there's something to click). Export
-paths never pass it, so the emitted email HTML is unchanged — keep it that way, and never
-add editor chrome to the default (export) branch.
+by `VisualCanvas`. It wraps each user-typeable field in a marker node carrying
+`data-edit-field="<propName>"`, plus `data-edit-empty="1"` on a blank field so there's
+something to click. Export paths never pass it, so the emitted email HTML is unchanged —
+keep it that way, and never add editor chrome to the default (export) branch.
+
+Each field declares an `EditMode`, the fourth argument to `editableField`:
+
+| Mode | Emitted as | Committed as | Enter |
+| --- | --- | --- | --- |
+| `plain` | `<span>` | `textContent` | saves |
+| `rich` | `<div data-edit-rich data-edit-enter="rich">` | sanitized HTML | new paragraph |
+| `item` | `<span data-edit-rich data-edit-enter="item">` | sanitized HTML | new list item |
+
+`rich` is a `<div>` because a paragraph break is block-level and a browser asked to put a
+`<p>` inside a `<span>` will do something else instead. Shift+Enter is a `<br>` in both
+rich modes.
 
 `BlockBody` in `VisualCanvas.tsx` drives the editing:
 
 - The **first** click selects the block; a **second** click on a marked field starts
   editing it. Editing can't start on the selecting click, because opening the Inspector
   resizes the canvas and the cursor would end up over different content.
-- The `data-edit-field` value must be the element's property name — the committed text is
-  written straight back to `element[field]`.
+- The `data-edit-field` value must be the element's property name, or `name.index` for one
+  entry of an array of strings (`items.2`) — `handleCommitField` writes it straight back to
+  `element[field]`. That one level of nesting is all it understands.
 - Edits commit **on blur**, not per keystroke: committing regenerates the block's HTML and
-  replaces these DOM nodes, which would drop the caret. Enter saves (or inserts `<br>` in a
-  rich field); Escape abandons.
+  replaces these DOM nodes, which would drop the caret. Escape abandons.
+- Blur is read on a wrapper around *both* the text and the toolbar, and ignored when focus
+  lands inside it. Committing when the user reaches for the toolbar would tear down the
+  field they're about to format.
 - Read plain fields with `textContent`, never `innerText` — `innerText` returns the
   *rendered* text, so a heading with `text-transform:uppercase` would save back SHOUTING.
+
+### The rich-text toolbar
+
+A rich field shows [RichTextToolbar](src/components/RichTextToolbar.tsx) while it's being
+edited: bold, italic, underline, font size, colour, and clear-formatting, each applied to
+the selection via `document.execCommand`.
+
+Two things about it are load-bearing:
+
+- **Every control cancels its own `mousedown`.** Clicking anything focusable collapses the
+  selection in a contenteditable, and the command would then apply to nothing. The colour
+  picker is the exception — a native `<input type="color">` won't open if its `mousedown`
+  is cancelled — so `BlockBody` also tracks the last selection (`savedRange`, updated on
+  `selectionchange`) and restores it before running any command.
+- **It's positioned `fixed`**, from the field's `getBoundingClientRect()`, and flips below
+  the text when there's no room above. The canvas draws the email inside a rounded frame
+  with `overflow-hidden`, which clips anything floating above the first block; a `fixed`
+  bar escapes that. It re-measures on `scroll` (with `capture`, so the canvas's own
+  scroll container is seen) and `resize`.
+
+### The Inspector's rich-text editor
+
+[RichTextField](src/components/RichTextField.tsx) is the paragraph's **Content** control: a
+Lexical editor with its own toolbar (bold, italic, underline, strikethrough, size, colour,
+clear formatting, undo/redo). It replaced a textarea of raw HTML with tag-insert buttons.
+
+It is a *view* onto the element's `content`, which is still the same string of email-safe
+HTML it always was. Nothing downstream changed — the generator, the canvas's inline
+editing and the export all read the same field:
+
+```
+content ──$generateNodesFromDOM──▶ EditorState ──$generateHtmlFromNodes──▶ sanitizeRichHtml ──▶ content
+```
+
+Lexical's export is **not** shippable markup — theme classes, `white-space: pre-wrap`
+spans, a doubled tag per format — so it never reaches `content` without
+`sanitizeRichHtml`. Keep it that way.
+
+Four things are load-bearing:
+
+- **Only a user edit writes back** (`userEditedRef`). A round trip through Lexical
+  normalises markup slightly, so emitting on mount would rewrite someone's hand-authored
+  HTML just because they clicked the block. The flag is set from **capture-phase** handlers:
+  React delivers a bubbled handler after Lexical's own listener has already committed the
+  update, so a bubble-phase flag arrives one keystroke late and the first character never
+  reaches `content`.
+- **Re-seeding never writes back.** When `value` changes from elsewhere — canvas inline
+  editing, or the HTML source box — the editor is re-seeded under an `external` tag the
+  emit path ignores. Without it, typing `<stro` into the source box would be parsed,
+  sanitized and written back over the half-finished tag.
+- **`HTML_IMPORT` carries inline styles onto text nodes.** Lexical's own importers ignore
+  `color` / `font-size` on a `<span>`, so opening a paragraph with coloured words and
+  typing one character would silently flatten all of it. Because Lexical resolves exactly
+  one importer per element, the override also has to re-apply the tag's own meaning —
+  taking over `<strong style="color:…">` for the colour would otherwise lose the bold. The
+  decision to take an element over belongs in the **selector**, which returns `null` to
+  hand it back to Lexical; a conversion that returns null leaves the element with no
+  importer at all.
+- **Every toolbar control cancels its own `mousedown`**, same as the canvas bar and for the
+  same reason. The `<select>` and colour input can't, so the handlers call `editor.focus()`
+  afterwards — Lexical keeps its selection in editor state through the blur, but the caret
+  has to be put back.
+
+The field is keyed on `element.id` so switching blocks gets a fresh editor rather than one
+carrying the previous block's undo history.
+
+Below it sits a collapsed **Edit HTML source** disclosure holding the original textarea.
+Hand-authoring stays possible — a link, an entity, a style the toolbar doesn't offer — and
+it is the deliberate unsanitized path described below.
+
+Only `paragraph` uses this so far. Wiring up another block's rich text means rendering
+`RichTextField` for it; nothing in the component is paragraph-specific except the
+`textStyle` preview passed in.
+
+### Nothing goes into an element's `content` unsanitized
+
+[src/utils/richText.ts](src/utils/richText.ts) normalises whatever `contenteditable` and
+`execCommand` produced before it is stored. Browsers disagree wildly here — `<b>` in one,
+`<span style="font-weight: 700">` in another, `<div>`s for line breaks, leftover `<font>`
+tags — and none of it can be assumed to survive Gmail or Outlook.
+
+`sanitizeRichHtml` keeps only `p`, `br`, `strong`, `em`, `u`, `s`, `span` and `a`;
+rewrites `b`/`i`/`strike`/`div`/`font` to those; re-expresses styled bold/italic/underline
+as **tags**, because Outlook's Word engine drops inherited font styling on some containers;
+and filters `style` down to colour, size, weight, style, decoration, background and margin.
+Tags that hold code rather than text (`script`, `style`, `iframe`, …) are removed whole
+instead of unwrapped, or their source would land in the newsletter as visible copy.
+
+Two passes exist for what the editors hand it rather than for what a user typed:
+
+- `collapseNestedEmphasis` flattens `<strong><strong>x</strong></strong>` to one tag.
+  Lexical's HTML export states every text format twice — once as the wrapper `exportDOM`
+  adds, once as the tag `createDOM` picked — so all bold text arrives doubled. A nested
+  copy carrying a style of its own becomes a `<span>` so the style survives.
+- `normalizeColor` rewrites `rgb(37, 99, 235)` to `#2563eb`. The CSSOM returns colours in
+  functional notation whatever was written, and Outlook is unreliable with it.
+
+It is idempotent, which matters because a field is re-sanitized on every edit. `allowParagraphs`
+is false for a list item — one line — where a paragraph break becomes a `<br>`.
+
+Don't sanitize at *render* time. The Inspector's textarea is a deliberate hand-authoring
+path, and rewriting what someone typed there while they type it is unusable.
 
 ### Selecting a container that's full
 
@@ -317,11 +439,19 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | [Navbar.tsx](src/components/Navbar.tsx) | Right-aligned new/save/open project file + export/import actions. Nothing else — the brand is the only thing on the left |
 | [ViewModeToggle.tsx](src/components/ViewModeToggle.tsx) | Desktop/mobile/code switch + open-in-new-tab, in the strip above the preview |
 | [SidebarElements.tsx](src/components/SidebarElements.tsx) | Preset picker above the tabs; element palette; "Canvas Style" tab holds the newsletter name + global `EmailSettings` |
-| [VisualCanvas.tsx](src/components/VisualCanvas.tsx) | Live preview; renders generated HTML per block, handles selection |
+| [VisualCanvas.tsx](src/components/VisualCanvas.tsx) | Live preview; renders generated HTML per block, handles selection and inline editing |
+| [RichTextToolbar.tsx](src/components/RichTextToolbar.tsx) | Bold / italic / underline / size / colour bar shown over a rich field being edited **on the canvas** |
+| [RichTextField.tsx](src/components/RichTextField.tsx) | The Inspector's Lexical editor for a block's rich text, with its own toolbar |
 | [InspectorPanel.tsx](src/components/InspectorPanel.tsx) | Per-element property editors + global `EmailSettings` |
 | [CodeEditor.tsx](src/components/CodeEditor.tsx) | Read-only generated-HTML view |
 | [ImportHtmlModal.tsx](src/components/ImportHtmlModal.tsx) | Paste raw HTML → wraps it as a `custom-html` element |
 | [ExportModal.tsx](src/components/ExportModal.tsx) | Copy / download / open-in-new-tab |
+
+[src/utils/richText.ts](src/utils/richText.ts) holds `sanitizeRichHtml` plus the two
+selection commands that need more than a bare `execCommand` (`applyFontSize`,
+`applyColor`) — see *Nothing goes into an element's `content` unsanitized* above. It also
+owns `RICH_TEXT_FONT_SIZES` and `RICH_TEXT_COLORS`, so the canvas bar and the Inspector's
+editor offer the same set; add a size or a swatch there, not in either toolbar.
 
 [src/utils/defaultTemplate.ts](src/utils/defaultTemplate.ts) holds `BLANK_CANVAS_TEMPLATE`
 (the seed template loaded on first run and the target of Reset) and `PRESET_TEMPLATES`

@@ -1,11 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { EmailElement, HeadingLevel, SectionElement } from '../types';
+import {
+  EmailElement,
+  HeadingLevel,
+  ListElement,
+  ListMarker,
+  SectionElement,
+} from '../types';
 import { renderElementToHtml } from '../utils/htmlGenerator';
 import { isContainerElement } from '../utils/elementHelpers';
+import { RichTextField } from './RichTextField';
 import {
   X,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   Trash2,
   Copy,
   Upload,
@@ -20,6 +28,9 @@ import {
   Square,
   Link2,
   Link2Off,
+  List,
+  ListOrdered,
+  Plus,
 } from 'lucide-react';
 
 export type InspectorTab = 'design' | 'html';
@@ -640,6 +651,283 @@ const SectionEditor: React.FC<SectionEditorProps> = ({
   );
 };
 
+/** Marker styles that suit each kind of list, in the order they're offered. */
+const BULLET_MARKERS: { value: ListMarker; label: string }[] = [
+  { value: 'disc', label: '●  Filled' },
+  { value: 'circle', label: '○  Hollow' },
+  { value: 'square', label: '■  Square' },
+  { value: 'none', label: 'No marker' },
+];
+
+const NUMBER_MARKERS: { value: ListMarker; label: string }[] = [
+  { value: 'decimal', label: '1.  2.  3.' },
+  { value: 'lower-alpha', label: 'a.  b.  c.' },
+  { value: 'upper-alpha', label: 'A.  B.  C.' },
+  { value: 'lower-roman', label: 'i.  ii.  iii.' },
+  { value: 'upper-roman', label: 'I.  II.  III.' },
+  { value: 'none', label: 'No marker' },
+];
+
+interface ListEditorProps {
+  element: ListElement;
+  onUpdateElement: (updated: EmailElement) => void;
+}
+
+/**
+ * Controls for a bulleted or numbered list.
+ *
+ * The item rows hold raw HTML on purpose — an item edited on the canvas can
+ * carry `<strong>`, `<em>` or a coloured `<span>`, and this is where that
+ * markup can be seen and corrected. Adding and removing items is here as well
+ * as on the canvas, because a list that has been emptied down to its last row
+ * can't grow itself back from a keystroke.
+ */
+const ListEditor: React.FC<ListEditorProps> = ({ element, onUpdateElement }) => {
+  const items = element.items || [];
+  const markers = element.ordered ? NUMBER_MARKERS : BULLET_MARKERS;
+
+  const setItems = (next: string[]) => onUpdateElement({ ...element, items: next });
+
+  const setOrdered = (ordered: boolean) =>
+    onUpdateElement({
+      ...element,
+      ordered,
+      // A bullet style means nothing on a numbered list and vice versa, so the
+      // marker falls back to that kind's default when it no longer applies.
+      marker: (ordered ? NUMBER_MARKERS : BULLET_MARKERS).some(
+        (m) => m.value === element.marker
+      )
+        ? element.marker
+        : ordered
+        ? 'decimal'
+        : 'disc',
+    });
+
+  const kindClass = (active: boolean) =>
+    `flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border text-[11px] font-semibold transition-colors ${
+      active
+        ? 'bg-red-700 border-red-700 text-white'
+        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-200'
+    }`;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          aria-pressed={!element.ordered}
+          onClick={() => setOrdered(false)}
+          className={kindClass(!element.ordered)}
+        >
+          <List className="w-3.5 h-3.5" />
+          Bulleted
+        </button>
+        <button
+          type="button"
+          aria-pressed={element.ordered}
+          onClick={() => setOrdered(true)}
+          className={kindClass(element.ordered)}
+        >
+          <ListOrdered className="w-3.5 h-3.5" />
+          Numbered
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        <label className="font-semibold text-slate-700">Marker Style</label>
+        <select
+          value={element.marker}
+          onChange={(e) =>
+            onUpdateElement({ ...element, marker: e.target.value as ListMarker })
+          }
+          className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+        >
+          {markers.map((marker) => (
+            <option key={marker.value} value={marker.value}>
+              {marker.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Items */}
+      <div className="space-y-1.5">
+        <label className="font-semibold text-slate-700 block">
+          Items{' '}
+          <span className="font-normal text-slate-400">({items.length})</span>
+        </label>
+
+        {items.length === 0 && (
+          <p className="text-[11px] text-slate-500">
+            This list is empty. Add an item below, or click the list on the
+            canvas and start typing.
+          </p>
+        )}
+
+        <div className="space-y-1.5">
+          {items.map((item, index) => (
+            <div key={index} className="flex items-start gap-1">
+              <span className="w-4 pt-2 text-[10px] font-mono text-slate-400 text-right shrink-0">
+                {element.ordered ? index + 1 : '•'}
+              </span>
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => {
+                  const next = [...items];
+                  next[index] = e.target.value;
+                  setItems(next);
+                }}
+                placeholder="List item"
+                className="flex-1 min-w-0 bg-slate-50 text-slate-800 border border-slate-200 rounded p-1.5 focus:ring-1 focus:ring-red-500"
+              />
+              <button
+                type="button"
+                onClick={() => setItems(items.filter((_, i) => i !== index))}
+                className="p-1.5 text-slate-400 hover:text-red-700 shrink-0"
+                title="Remove this item"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setItems([...items, ''])}
+          className="w-full flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded p-1.5 font-semibold cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5 text-red-700" />
+          Add Item
+        </button>
+        <p className="text-[10px] text-slate-500">
+          Items accept HTML. On the canvas, select text to format it — Enter
+          starts the next item.
+        </p>
+      </div>
+
+      <TextStyleToggles
+        label="Whole List Style"
+        bold={(element.fontWeight ?? 'normal') === 'bold'}
+        italic={(element.fontStyle ?? 'normal') === 'italic'}
+        onChange={({ bold, italic }) =>
+          onUpdateElement({
+            ...element,
+            fontWeight: bold ? 'bold' : 'normal',
+            fontStyle: italic ? 'italic' : 'normal',
+          })
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Font Size (px)</label>
+          <input
+            type="number"
+            value={element.fontSize}
+            onChange={(e) =>
+              onUpdateElement({ ...element, fontSize: Number(e.target.value) })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Line Height</label>
+          <input
+            type="number"
+            step="0.1"
+            value={element.lineHeight}
+            onChange={(e) =>
+              onUpdateElement({ ...element, lineHeight: Number(e.target.value) })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Indent (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.indent}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                indent: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Item Gap (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.itemSpacing}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                itemSpacing: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="font-semibold text-slate-700 flex justify-between">
+          <span>Text Color</span>
+          <span className="font-mono text-slate-500">{element.color}</span>
+        </label>
+        <input
+          type="color"
+          value={element.color}
+          onChange={(e) => onUpdateElement({ ...element, color: e.target.value })}
+          className="w-8 h-8 rounded border-0 bg-transparent cursor-pointer"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Space Above (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.marginTop}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                marginTop: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-semibold text-slate-700">Space Below (px)</label>
+          <input
+            type="number"
+            min={0}
+            value={element.marginBottom}
+            onChange={(e) =>
+              onUpdateElement({
+                ...element,
+                marginBottom: Math.max(0, Number(e.target.value) || 0),
+              })
+            }
+            className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface InspectorPanelProps {
   element: EmailElement | null;
   onUpdateElement: (updated: EmailElement) => void;
@@ -668,6 +956,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const paragraphRef = useRef<HTMLTextAreaElement | null>(null);
+  // Hand-authoring the markup is still possible, just no longer the default —
+  // see the paragraph editor below.
+  const [showParagraphSource, setShowParagraphSource] = useState(false);
 
   if (!element) return null;
 
@@ -1052,55 +1343,119 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         {element.type === 'paragraph' && (
           <div className="space-y-3">
             <div className="space-y-1">
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-semibold text-slate-700">Content (HTML / Rich Text)</label>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => insertTagToParagraph('<strong>', '</strong>')}
-                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-700 border border-slate-200"
-                    title="Bold the selected text (<strong>)"
-                  >
-                    B
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => insertTagToParagraph('<em>', '</em>')}
-                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] italic font-semibold text-slate-700 border border-slate-200"
-                    title="Italicize the selected text (<em>)"
-                  >
-                    I
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      insertTagToParagraph('<font color="#990000">', '</font>')
-                    }
-                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-red-700 border border-slate-200"
-                    title="Red Text"
-                  >
-                    Red
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => insertTagToParagraph('<br>', '')}
-                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-mono text-slate-700 border border-slate-200"
-                    title="Line Break"
-                  >
-                    br
-                  </button>
-                </div>
-              </div>
-              <textarea
-                ref={paragraphRef}
-                rows={6}
+              <label className="font-semibold text-slate-700 block mb-1">Content</label>
+
+              {/*
+                Keyed on the element id so selecting a different paragraph gets
+                a fresh editor rather than one carrying the previous block's
+                undo history.
+              */}
+              <RichTextField
+                key={element.id}
                 value={element.content}
-                onChange={(e) => onUpdateElement({ ...element, content: e.target.value })}
-                className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2 font-sans text-xs leading-relaxed focus:ring-1 focus:ring-red-500"
+                onChange={(content) => onUpdateElement({ ...element, content })}
+                placeholder="Write your message…"
+                textStyle={{
+                  fontFamily,
+                  fontSize: `${element.fontSize}px`,
+                  lineHeight: element.lineHeight,
+                  color: element.color,
+                  fontWeight: element.fontWeight ?? 'normal',
+                  fontStyle: element.fontStyle ?? 'normal',
+                }}
               />
               <p className="text-[10px] text-slate-500">
-                Select text above, then press B or I to style just that phrase.
+                Select text and use the bar above to style just that phrase.
+                Enter starts a new paragraph, Shift+Enter a line break. The same
+                editing works on the canvas.
               </p>
+            </div>
+
+            {/*
+              The hand-authoring path. Kept because arbitrary markup — a link,
+              an entity, a style the toolbar doesn't offer — is easier to type
+              than to build, and because what's stored has always been HTML.
+              Typing here re-seeds the editor above, but never the reverse:
+              a half-finished `<stro` would otherwise be parsed and written
+              back over itself. See RichTextField.tsx.
+            */}
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowParagraphSource((open) => !open)}
+                aria-expanded={showParagraphSource}
+                className="w-full flex items-center gap-1 px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 transition-colors"
+              >
+                {showParagraphSource ? (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                )}
+                Edit HTML source
+              </button>
+
+              {showParagraphSource && (
+                <div className="p-2 space-y-1 border-t border-slate-200">
+                  <div className="flex gap-1 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => insertTagToParagraph('<strong>', '</strong>')}
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-700 border border-slate-200"
+                      title="Bold the selected text (<strong>)"
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertTagToParagraph('<em>', '</em>')}
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] italic font-semibold text-slate-700 border border-slate-200"
+                      title="Italicize the selected text (<em>)"
+                    >
+                      I
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        insertTagToParagraph(
+                          '<span style="color:#b22222;">',
+                          '</span>'
+                        )
+                      }
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-red-700 border border-slate-200"
+                      title="Red Text"
+                    >
+                      Red
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        insertTagToParagraph('<p style="margin:0 0 1em;">', '</p>')
+                      }
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-mono text-slate-700 border border-slate-200"
+                      title="Wrap the selection in its own paragraph"
+                    >
+                      ¶
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertTagToParagraph('<br>', '')}
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-mono text-slate-700 border border-slate-200"
+                      title="Line Break"
+                    >
+                      br
+                    </button>
+                  </div>
+                  <textarea
+                    ref={paragraphRef}
+                    rows={6}
+                    value={element.content}
+                    onChange={(e) =>
+                      onUpdateElement({ ...element, content: e.target.value })
+                    }
+                    className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded p-2 font-mono text-[11px] leading-relaxed focus:ring-1 focus:ring-red-500"
+                  />
+                </div>
+              )}
             </div>
 
             <TextStyleToggles
@@ -1143,6 +1498,15 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* List Editor */}
+        {element.type === 'list' && (
+          <ListEditor
+            key={element.id}
+            element={element}
+            onUpdateElement={onUpdateElement}
+          />
         )}
 
         {/* Button Editor */}

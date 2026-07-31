@@ -30,6 +30,11 @@ export const TEMPLATE_FILE_FORMAT = 'html-newsletter-designer';
  * v2 — `header-image` became the generic `image`. v1 files still load (the block
  * is converted on read); a v1 build reading a v2 file would silently drop every
  * image, so the bump makes it say so instead.
+ *
+ * Still 2 after the `list` block was added: a new *type* is additive. A build
+ * without it drops the block with a visible warning, which is the right outcome
+ * — bumping would instead make it refuse the whole file, losing the rest of a
+ * newsletter it could have read perfectly well.
  */
 export const TEMPLATE_FILE_VERSION = 2;
 export const TEMPLATE_FILE_EXTENSION = '.newsletter.json';
@@ -48,6 +53,7 @@ const ELEMENT_TYPES = new Set<string>([
   'section',
   'key-value',
   'paragraph',
+  'list',
   'button',
   'divider',
   'quote',
@@ -149,6 +155,15 @@ function normalizeElement(
     // sneak in when the file's section is genuinely empty.
     element.childElements = Array.isArray(raw.childElements)
       ? normalizeList(raw.childElements, warnings, seen)
+      : [];
+  }
+
+  if (element.type === 'list') {
+    // `items` is the one array of plain strings in the schema, and the spread
+    // above would have taken whatever the file put there — including a string,
+    // or a list of objects — straight into the renderer.
+    element.items = Array.isArray(raw.items)
+      ? raw.items.filter((item): item is string => typeof item === 'string')
       : [];
   }
 
