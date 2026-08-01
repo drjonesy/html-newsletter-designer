@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Check, Loader2, Mail } from 'lucide-react';
+import { Check, FilePlus2, Loader2, Mail } from 'lucide-react';
 import { useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
 import { TEMPLATE_FILE_EXTENSION } from '../../utils/templateFile';
@@ -17,6 +17,7 @@ export const TopBar: React.FC = () => {
   const {
     template,
     renameTemplate,
+    newNewsletter,
     saveTemplateFile,
     openTemplateFile,
     saveStatus,
@@ -67,6 +68,18 @@ export const TopBar: React.FC = () => {
           )}
         </span>
 
+        {/* Quiet, and first: it throws the current newsletter away, so it must
+            not sit next to Save looking like a peer of it. `newNewsletter`
+            confirms before it resets — the same handler the Theme panel calls,
+            not a second copy of the reset. */}
+        <button
+          type="button"
+          onClick={newNewsletter}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+        >
+          <FilePlus2 className="h-4 w-4" />
+          New
+        </button>
         <button
           type="button"
           onClick={() => fileInput.current?.click()}
