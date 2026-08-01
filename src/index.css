@@ -1,8 +1,41 @@
 @import "tailwindcss";
 
 /*
+ * v2 design tokens.
+ *
+ * Tailwind 4 has no config file — `@theme` is where custom scale entries go, and
+ * every name declared here becomes a utility (`bg-accent`, `text-accent-600`,
+ * `ring-accent`). The purple is the app's one accent colour: active rail item,
+ * selected block outline, primary button, toggle "on", focus ring.
+ *
+ * The scale is generated from `--color-accent-500` by holding its hue (278°)
+ * and walking lightness, so re-branding means replacing all ten steps together —
+ * changing 500 alone leaves the hovers and tints pointing at the old hue.
+ * `600` is the hover for every `500` surface.
+ *
+ * Editor chrome only. Nothing here describes the *email* — that is generated as
+ * inline styles by htmlGenerator and never sees a stylesheet.
+ */
+@theme {
+  --color-accent-50: #faf5fc;
+  --color-accent-100: #f1e6f7;
+  --color-accent-200: #e1cbee;
+  --color-accent-300: #c79fdd;
+  --color-accent-400: #ae78cc;
+  --color-accent-500: #944dbc;
+  --color-accent-600: #7d3ba3;
+  --color-accent-700: #652e84;
+  --color-accent-800: #512768;
+  --color-accent-900: #402053;
+
+  /* Semantic aliases so components don't hardcode a step. */
+  --color-accent: var(--color-accent-500);
+  --color-danger: #dc2626;
+}
+
+/*
  * Inline-edit affordances for the canvas. `[data-edit-field]` spans are emitted
- * by htmlGenerator only when rendering for VisualCanvas — they never reach the
+ * by htmlGenerator only when rendering for the canvas — they never reach the
  * exported email HTML, so these rules cannot leak into a sent newsletter.
  */
 [data-edit-field] {
@@ -10,13 +43,27 @@
 }
 
 [data-edit-field]:hover {
-  box-shadow: inset 0 -1px 0 rgba(178, 34, 34, 0.4);
+  box-shadow: inset 0 -1px 0 var(--color-accent-300);
 }
 
 [data-edit-field][contenteditable="true"] {
   box-shadow: none;
-  outline: 2px solid rgba(178, 34, 34, 0.55);
+  outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
   border-radius: 2px;
   background-color: rgba(255, 255, 255, 0.6);
+}
+
+/*
+ * A hidden block still shows on the canvas — dimmed, so the state is visible.
+ *
+ * Deliberately the *only* rule targeting generated markup. Email HTML inlines
+ * every style precisely because it can't rely on a stylesheet, so the canvas
+ * needs no reset: whatever the block renders as here is what it renders as in
+ * the export. Adding preflight overrides (`margin: revert` and friends) would
+ * make the preview disagree with the email, since a client applies neither
+ * Tailwind's reset nor the browser's UA defaults the same way.
+ */
+.nl-hidden-block {
+  opacity: 0.45;
 }

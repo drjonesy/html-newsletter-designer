@@ -1,142 +1,106 @@
-import React from 'react';
-import { X, Copy, Download, Mail, Check, Sparkles, HelpCircle, ExternalLink } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, Copy, Download, ExternalLink, X } from 'lucide-react';
+import { useDesigner } from '../state/DesignerContext';
 
-interface ExportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  htmlCode: string;
-  onCopy: () => void;
-  copied: boolean;
-  onDownload: () => void;
-  onOpenNewTab?: () => void;
-}
+/** Roughly where Gmail cuts a message off and hides the rest. */
+const GMAIL_CLIP_KB = 102;
 
-export const ExportModal: React.FC<ExportModalProps> = ({
-  isOpen,
-  onClose,
-  htmlCode,
-  onCopy,
-  copied,
-  onDownload,
-  onOpenNewTab,
-}) => {
-  if (!isOpen) return null;
+/**
+ * The email as sendable HTML: read it, copy it, download it, open it.
+ *
+ * This is the only place the *whole* document is shown. v1 had a third
+ * view-mode competing with the canvas for the same space, which was only ever
+ * used at the very end — to get the markup out.
+ */
+export const ExportModal: React.FC = () => {
+  const { emailHtml, downloadHtml, openInNewTab, ui } = useDesigner();
+  const [copied, setCopied] = useState(false);
 
-  const handleSendTestMail = () => {
-    const subject = encodeURIComponent('Newsletter Test');
-    const body = encodeURIComponent(
-      'Here is your rendered newsletter HTML:\n\n' + htmlCode.slice(0, 1500) + '...'
-    );
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-  };
+  useEffect(() => {
+    if (!ui.exportOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') ui.setExportOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ui]);
+
+  if (!ui.exportOpen) return null;
+
+  const kb = new Blob([emailHtml]).size / 1024;
+  const clipped = kb > GMAIL_CLIP_KB;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col text-slate-800">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-red-100 text-red-700 border border-red-200">
-              <Download className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Export Email Newsletter HTML
-              </h2>
-              <p className="text-xs text-slate-500">
-                Ready to send via Gmail, Mailchimp, ConvertKit, or SendGrid
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6"
+      onClick={() => ui.setExportOpen(false)}
+    >
+      <div
+        className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">Export HTML</h2>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              clipped
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-slate-100 text-slate-600'
+            }`}
           >
-            <X className="w-5 h-5" />
+            {kb.toFixed(1)} KB
+          </span>
+          <button
+            type="button"
+            onClick={() => ui.setExportOpen(false)}
+            aria-label="Close"
+            className="ml-auto rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4 text-xs">
-          {/* Action Buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              onClick={onCopy}
-              className={`flex items-center justify-center gap-2 p-3 rounded-xl font-bold transition-all shadow-xs cursor-pointer ${
-                copied
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-red-700 hover:bg-red-800 text-white'
-              }`}
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>HTML Copied to Clipboard!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>Copy Clean HTML</span>
-                </>
-              )}
-            </button>
+        {clipped && (
+          <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs leading-relaxed text-amber-900">
+            Over Gmail's ~{GMAIL_CLIP_KB}KB clipping threshold: Gmail will cut
+            the message off and hide the rest behind a "View entire message"
+            link. Uploaded images are usually the cause — they're embedded as
+            data URIs, which is what makes a project file self-contained.
+          </p>
+        )}
 
-            <button
-              onClick={onDownload}
-              className="flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl font-bold transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-red-700" />
-              <span>Download newsletter.html</span>
-            </button>
-          </div>
+        <pre className="min-h-0 flex-1 overflow-auto bg-slate-900 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
+          {emailHtml}
+        </pre>
 
-          {/* Mailto & New Tab Preview */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {onOpenNewTab && (
-              <button
-                onClick={onOpenNewTab}
-                className="flex items-center justify-center gap-2 p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl font-bold transition-colors cursor-pointer"
-              >
-                <ExternalLink className="w-4 h-4 text-red-700" />
-                <span>Preview in New Tab</span>
-              </button>
-            )}
-            <button
-              onClick={handleSendTestMail}
-              className="flex items-center justify-center gap-2 p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl font-bold transition-colors cursor-pointer"
-            >
-              <Mail className="w-4 h-4 text-slate-500" />
-              <span>Draft in Email Client</span>
-            </button>
-          </div>
-
-          {/* Quick Guide */}
-          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-            <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-              <HelpCircle className="w-3.5 h-3.5 text-red-700" />
-              How to send using Gmail or Email Providers:
-            </h4>
-            <ol className="list-decimal list-inside space-y-1 text-slate-600 text-[11px] leading-relaxed font-medium">
-              <li>
-                <strong className="text-slate-800">Gmail:</strong> Open a new compose window, paste the HTML using a Chrome extension like "Gmail Insert HTML" or copy rendered preview.
-              </li>
-              <li>
-                <strong className="text-slate-800">Mailchimp / ConvertKit:</strong> Choose "Custom Code / Paste HTML" block and paste the copied code.
-              </li>
-              <li>
-                <strong className="text-slate-800">Offline Backups:</strong> Click "Download newsletter.html" to keep a local archive of your study newsletters.
-              </li>
-            </ol>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end p-4 border-t border-slate-200 bg-slate-50">
+        <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-5 py-4">
           <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors border border-slate-200 cursor-pointer"
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(emailHtml);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            className="flex items-center gap-2 rounded-md bg-accent-500 px-4 py-2 text-sm font-bold text-white hover:bg-accent-600"
           >
-            Close
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? 'Copied' : 'Copy HTML'}
+          </button>
+          <button
+            type="button"
+            onClick={downloadHtml}
+            className="flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <Download className="h-4 w-4" />
+            Download
+          </button>
+          <button
+            type="button"
+            onClick={openInNewTab}
+            className="flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in new tab
           </button>
         </div>
       </div>

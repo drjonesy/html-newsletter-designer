@@ -1,89 +1,92 @@
-import React, { useState } from 'react';
-import { X, Upload, Sparkles, AlertCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
+import { useDesigner } from '../state/DesignerContext';
 
-interface ImportHtmlModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onImportHtml: (rawHtml: string) => void;
-}
+/**
+ * Paste raw HTML, get a `custom-html` block.
+ *
+ * The markup is stored verbatim — not parsed into typed blocks. Reverse-engineering
+ * arbitrary email HTML into `fontSize`/`alignment` fields is a guess that goes
+ * wrong quietly, and a block that renders exactly what you pasted is more
+ * useful than a mangled approximation you then have to repair.
+ */
+export const ImportHtmlModal: React.FC = () => {
+  const { importRawHtml, addTarget, ui } = useDesigner();
+  const [html, setHtml] = useState('');
 
-export const ImportHtmlModal: React.FC<ImportHtmlModalProps> = ({
-  isOpen,
-  onClose,
-  onImportHtml,
-}) => {
-  const [rawHtml, setRawHtml] = useState('');
+  useEffect(() => {
+    if (!ui.importOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') ui.setImportOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ui]);
 
-  if (!isOpen) return null;
+  if (!ui.importOpen) return null;
 
-  const handleImport = () => {
-    if (!rawHtml.trim()) return;
-    onImportHtml(rawHtml);
-    setRawHtml('');
-    onClose();
+  const submit = () => {
+    if (!html.trim()) return;
+    importRawHtml(html);
+    setHtml('');
+    ui.setImportOpen(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col text-slate-800">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-red-100 text-red-700 border border-red-200">
-              <Upload className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Import Raw Gmail / Email HTML
-              </h2>
-              <p className="text-xs text-slate-500">
-                Paste any email HTML snippet to import into the editor
-              </p>
-            </div>
-          </div>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6"
+      onClick={() => ui.setImportOpen(false)}
+    >
+      <div
+        className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">Paste HTML</h2>
           <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors"
+            type="button"
+            onClick={() => ui.setImportOpen(false)}
+            aria-label="Close"
+            className="ml-auto rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-4 space-y-3">
-          <div className="p-3 bg-red-50/70 border border-red-200/70 rounded-xl text-xs text-slate-800 flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-            <p className="text-[11px] leading-relaxed text-slate-700">
-              Paste the HTML code copied from Gmail or your email client. The designer will convert it into an editable block inside your template canvas so you can add elements, change text, and export fresh newsletters!
-            </p>
-          </div>
-
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <textarea
-            rows={10}
-            value={rawHtml}
-            onChange={(e) => setRawHtml(e.target.value)}
-            placeholder='Paste HTML here (e.g. <table width="100%">...</table>)...'
-            className="w-full bg-slate-900 text-slate-100 font-mono text-xs p-3 rounded-xl border border-slate-800 focus:outline-none focus:ring-1 focus:ring-red-500 leading-relaxed"
+            autoFocus
+            value={html}
+            spellCheck={false}
+            placeholder={'<table role="presentation">…</table>'}
+            onChange={(e) => setHtml(e.target.value)}
+            className="h-64 w-full resize-y rounded-lg border border-slate-300 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-slate-100 outline-none focus:border-accent-500"
           />
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+            Added as a single HTML block{' '}
+            {addTarget
+              ? `inside “${addTarget.label || 'Section'}”.`
+              : 'in a new section of its own.'}{' '}
+            It's kept exactly as pasted, so anything that doesn't work in email
+            won't start working here.
+          </p>
         </div>
 
-        {/* Modal Footer */}
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200 bg-slate-50">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 px-5 py-4">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors border border-slate-200"
+            onClick={() => ui.setImportOpen(false)}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={handleImport}
-            disabled={!rawHtml.trim()}
-            className="px-4 py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+            onClick={submit}
+            disabled={!html.trim()}
+            className="rounded-md bg-accent-500 px-4 py-2 text-sm font-bold text-white hover:bg-accent-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Import to Canvas</span>
+            Add block
           </button>
         </div>
       </div>

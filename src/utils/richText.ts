@@ -73,6 +73,9 @@ const ALLOWED_STYLE_PROPS = new Set([
   'color',
   'background-color',
   'font-size',
+  // Only ever a stack of email-safe families — see RICH_TEXT_FONTS. A webfont
+  // name is harmless here because it simply falls back in the client.
+  'font-family',
   'font-weight',
   'font-style',
   'text-decoration',
@@ -107,6 +110,35 @@ export const PARAGRAPH_MARGIN = '0 0 1em';
 
 /** Sizes offered for selected text. Body copy sits at 16. */
 export const RICH_TEXT_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32];
+
+/**
+ * Font stacks offered anywhere in the app — the text toolbar and the Theme
+ * panel both read this list, so they can't drift apart.
+ *
+ * Every entry resolves without a webfont. `@import` and `<link>` to Google
+ * Fonts are stripped or ignored by most email clients, so a family that isn't
+ * already on the reader's machine silently becomes Times New Roman.
+ */
+export const RICH_TEXT_FONTS: { label: string; stack: string }[] = [
+  { label: 'Helvetica', stack: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
+  { label: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
+  { label: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
+  { label: 'Times New Roman', stack: '"Times New Roman", Times, serif' },
+  { label: 'Trebuchet MS', stack: '"Trebuchet MS", Tahoma, sans-serif' },
+  { label: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma', stack: 'Tahoma, Verdana, sans-serif' },
+  { label: 'Courier New', stack: '"Courier New", Courier, monospace' },
+];
+
+/** Highlight swatches. Light, because text stays dark on top of them. */
+export const RICH_TEXT_HIGHLIGHTS = [
+  '#fef08a',
+  '#fed7aa',
+  '#fecaca',
+  '#e9d5ff',
+  '#bfdbfe',
+  '#bbf7d0',
+];
 
 /** Text colours offered as one click. Anything else goes through the picker. */
 export const RICH_TEXT_COLORS = [
@@ -182,6 +214,22 @@ function normalizeColor(value: string): string {
 /** Style properties whose value is a colour. */
 const COLOR_PROPS = new Set(['color', 'background-color']);
 
+/**
+ * Makes a font stack safe to sit inside a double-quoted `style` attribute.
+ *
+ * `font-family:"Helvetica Neue", …` written into `style="…"` **ends the
+ * attribute at the first inner quote**. The browser keeps `font-size` and
+ * whatever came before it, then throws away the font and every declaration
+ * after it — so the email renders in Times with no bold. Single quotes are
+ * equally valid CSS and don't collide with the attribute delimiter.
+ *
+ * Applies to any family name with a space in it, which is most of the
+ * email-safe ones.
+ */
+export function cssFontFamily(stack: string): string {
+  return stack.replace(/"/g, "'");
+}
+
 function filterStyle(el: HTMLElement): void {
   const style = el.getAttribute('style');
   if (style === null) return;
@@ -218,7 +266,12 @@ function filterStyle(el: HTMLElement): void {
     el.setAttribute(
       'style',
       kept
-        .map(([p, v]) => `${p}:${COLOR_PROPS.has(p) ? normalizeColor(v) : v};`)
+        .map(([p, v]) => {
+          // The CSSOM serialises font-family with double quotes, which would
+          // break out of the `style="…"` it eventually lands in.
+          if (p === 'font-family') return `${p}:${cssFontFamily(v)};`;
+          return `${p}:${COLOR_PROPS.has(p) ? normalizeColor(v) : v};`;
+        })
         .join(' ')
     );
   } else {
@@ -446,13 +499,50 @@ export function applyFontSize(root: HTMLElement, px: number): void {
 
   // Swapping the nodes out dropped the selection; put it back over the text
   // that was just resized so the next command applies to the same words.
-  if (last) {
-    const range = document.createRange();
-    range.selectNodeContents(last);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+  if (last) selectContents(last);
+}
+
+/**
+ * The `<font face>` value `applyFontFamily` tags its own output with.
+ *
+ * A sentinel rather than the real family name, for the same reason
+ * `applyFontSize` asks for size 7: it has to find exactly the nodes the browser
+ * just created, and a real font name could already be present elsewhere in the
+ * field from an earlier edit.
+ */
+const FONT_FACE_SENTINEL = '__nl-font__';
+
+/**
+ * Applies a font stack to the current selection.
+ *
+ * Same shape as `applyFontSize`: let `execCommand` do the range splitting —
+ * which is the genuinely hard part when a selection cuts across existing tags —
+ * then rewrite what it produced into the markup email clients want.
+ */
+export function applyFontFamily(root: HTMLElement, stack: string): void {
+  document.execCommand('fontName', false, FONT_FACE_SENTINEL);
+
+  let last: HTMLElement | null = null;
+  for (const font of Array.from(
+    root.querySelectorAll(`font[face="${FONT_FACE_SENTINEL}"]`)
+  )) {
+    const span = document.createElement('span');
+    span.style.fontFamily = stack;
+    while (font.firstChild) span.appendChild(font.firstChild);
+    font.replaceWith(span);
+    last = span;
   }
+
+  if (last) selectContents(last);
+}
+
+/** Puts the selection back over `node` after its DOM was swapped out. */
+function selectContents(node: HTMLElement): void {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
 }
 
 /**
@@ -467,4 +557,42 @@ export function applyColor(color: string): void {
   document.execCommand('styleWithCSS', false, 'true');
   document.execCommand('foreColor', false, color);
   document.execCommand('styleWithCSS', false, 'false');
+}
+
+/**
+ * Applies a background colour behind the selected text.
+ *
+ * `hiliteColor` is the correct command and the one Gecko implements;
+ * WebKit/Blink only honour `backColor` for a selection. Running both is
+ * harmless — whichever the engine doesn't support is a no-op — and is the only
+ * way to get one call that works everywhere.
+ */
+export function applyHighlight(color: string): void {
+  document.execCommand('styleWithCSS', false, 'true');
+  document.execCommand('hiliteColor', false, color);
+  document.execCommand('backColor', false, color);
+  document.execCommand('styleWithCSS', false, 'false');
+}
+
+/**
+ * Turns the selection into a link.
+ *
+ * `createLink` doesn't set a target, and a newsletter link that replaces the
+ * reader's webmail tab is a bad outcome — so every anchor this creates opens in
+ * a new tab. `rel` goes with it because `target="_blank"` without it is a
+ * tabnabbing vector in the clients that render links as real anchors.
+ */
+export function applyLink(root: HTMLElement, url: string): void {
+  document.execCommand('createLink', false, url);
+
+  for (const anchor of Array.from(root.querySelectorAll('a'))) {
+    if (anchor.getAttribute('href') !== url) continue;
+    anchor.setAttribute('target', '_blank');
+    anchor.setAttribute('rel', 'noopener noreferrer');
+  }
+}
+
+/** Removes the link around the selection, keeping its text. */
+export function removeLink(): void {
+  document.execCommand('unlink');
 }

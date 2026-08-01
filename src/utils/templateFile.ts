@@ -1,11 +1,21 @@
-import { ElementType, EmailElement, EmailSettings, NewsletterTemplate } from '../types';
+import {
+  ElementType,
+  EmailElement,
+  EmailSettings,
+  NewsletterTemplate,
+  TypographyScale,
+  TypographyStyle,
+} from '../types';
+import { TYPOGRAPHY_KEYS } from './typography';
 import {
   convertLegacyAccentSection,
   convertLegacyHeaderImage,
+  convertLegacyKeyValue,
   createNewElement,
   isContainerElement,
   LEGACY_ACCENT_TYPE,
   LEGACY_HEADER_IMAGE_TYPE,
+  LEGACY_KEY_VALUE_TYPE,
   migrateToSections,
 } from './elementHelpers';
 import { BLANK_CANVAS_TEMPLATE } from './defaultTemplate';
@@ -31,10 +41,20 @@ export const TEMPLATE_FILE_FORMAT = 'html-newsletter-designer';
  * is converted on read); a v1 build reading a v2 file would silently drop every
  * image, so the bump makes it say so instead.
  *
- * Still 2 after the `list` block was added: a new *type* is additive. A build
- * without it drops the block with a visible warning, which is the right outcome
- * — bumping would instead make it refuse the whole file, losing the rest of a
- * newsletter it could have read perfectly well.
+ * Still 2 after the `list` and `spacer` blocks were added: a new *type* is
+ * additive. A build without it drops the block with a visible warning, which is
+ * the right outcome — bumping would instead make it refuse the whole file,
+ * losing the rest of a newsletter it could have read perfectly well.
+ *
+ * Still 2 after `key-value` was retired and `visibility` added, for the same
+ * reason read the other way round. The bump exists to stop an *older* build
+ * misreading a *newer* file; removing a type can't do that, and `visibility` is
+ * optional — an old build ignores it and shows the block, which is the safe
+ * failure. Old files still holding a `key-value` block are converted on read.
+ *
+ * Still 2 after `row` and `column` arrived, for the first reason again: they
+ * are new types, so an old build drops them with a visible warning and reads
+ * the rest of the newsletter, which beats refusing the whole file.
  */
 export const TEMPLATE_FILE_VERSION = 2;
 export const TEMPLATE_FILE_EXTENSION = '.newsletter.json';
@@ -51,11 +71,13 @@ const ELEMENT_TYPES = new Set<string>([
   'image',
   'heading',
   'section',
-  'key-value',
+  'row',
+  'column',
   'paragraph',
   'list',
   'button',
   'divider',
+  'spacer',
   'quote',
   'custom-html',
 ]);
@@ -135,6 +157,8 @@ function normalizeElement(
     raw = convertLegacyAccentSection(raw);
   } else if (isRecord(raw) && raw.type === LEGACY_HEADER_IMAGE_TYPE) {
     raw = convertLegacyHeaderImage(raw);
+  } else if (isRecord(raw) && raw.type === LEGACY_KEY_VALUE_TYPE) {
+    raw = convertLegacyKeyValue(raw);
   }
 
   if (!isRecord(raw) || typeof raw.type !== 'string' || !ELEMENT_TYPES.has(raw.type)) {
@@ -191,6 +215,53 @@ function normalizeList(
   return out;
 }
 
+/**
+ * Rebuilds the theme's type scale from file data, keeping only entries and
+ * fields this build knows, with the right types.
+ *
+ * Handled separately from the flat settings below because a `typeof` check
+ * against an object accepts *any* object — including one whose `h1.fontSize` is
+ * a string, which would reach the generator as `font-size:NaNpx`.
+ */
+function normalizeTypography(raw: unknown): TypographyScale | undefined {
+  if (!isRecord(raw)) return undefined;
+
+  const scale: TypographyScale = {};
+  for (const key of TYPOGRAPHY_KEYS) {
+    const entry = raw[key];
+    if (!isRecord(entry)) continue;
+
+    const style: Partial<TypographyStyle> = {};
+    if (typeof entry.fontSize === 'number' && isFinite(entry.fontSize)) {
+      style.fontSize = entry.fontSize;
+    }
+    if (typeof entry.lineHeight === 'number' && isFinite(entry.lineHeight)) {
+      style.lineHeight = entry.lineHeight;
+    }
+    if (entry.fontWeight === 'normal' || entry.fontWeight === 'bold') {
+      style.fontWeight = entry.fontWeight;
+    }
+    if (entry.fontStyle === 'normal' || entry.fontStyle === 'italic') {
+      style.fontStyle = entry.fontStyle;
+    }
+    if (
+      entry.transform === 'none' ||
+      entry.transform === 'uppercase' ||
+      entry.transform === 'capitalize'
+    ) {
+      style.transform = entry.transform;
+    }
+    if (typeof entry.letterSpacing === 'string') {
+      style.letterSpacing = entry.letterSpacing;
+    }
+    if (typeof entry.color === 'string') style.color = entry.color;
+
+    if (Object.keys(style).length > 0) scale[key] = style;
+  }
+
+  return Object.keys(scale).length > 0 ? scale : undefined;
+}
+
 function normalizeSettings(raw: unknown, warnings: string[]): EmailSettings {
   if (!isRecord(raw)) {
     warnings.push('That file had no global style settings — used the defaults.');
@@ -200,6 +271,8 @@ function normalizeSettings(raw: unknown, warnings: string[]): EmailSettings {
   const settings = { ...DEFAULT_SETTINGS };
   let replaced = 0;
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof EmailSettings)[]) {
+    // The one non-scalar setting — validated field by field below.
+    if (key === 'typography') continue;
     const value = raw[key];
     if (typeof value === typeof DEFAULT_SETTINGS[key]) {
       (settings[key] as EmailSettings[typeof key]) = value as EmailSettings[typeof key];
@@ -207,6 +280,9 @@ function normalizeSettings(raw: unknown, warnings: string[]): EmailSettings {
       replaced++;
     }
   }
+
+  const typography = normalizeTypography(raw.typography);
+  if (typography) settings.typography = typography;
   if (replaced > 0) {
     warnings.push(`${replaced} global style setting(s) were unreadable — used the defaults.`);
   }

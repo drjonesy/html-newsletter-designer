@@ -1,45 +1,61 @@
 import { NewsletterTemplate } from '../types';
 import { createBareSection as bareSection } from './elementHelpers';
 
-/** Seed template loaded on first run, and the target of Reset. */
+/**
+ * Seed template loaded on first run, and the target of New.
+ *
+ * Three sections — Header, Body, Footer — because that's the shape almost every
+ * newsletter takes, and because blocks have to live inside a section, so an
+ * empty email with no sections has nowhere to put the first thing you add.
+ *
+ * All three are `bareSection`s: no border, padding, margin or fill, which the
+ * generator emits as nothing at all. The structure exists for the editor; the
+ * exported email is exactly its blocks until someone styles a section.
+ */
 export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
   id: 'blank',
-  name: 'Blank Canvas',
+  name: 'Untitled Newsletter',
   settings: {
     width: 600,
     bgColor: '#f3f4f6',
     cardBgColor: '#ffffff',
     fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
     textColor: '#111827',
-    accentColor: '#10b981',
+    accentColor: '#944dbc',
     padding: 20,
   },
   elements: [
-    bareSection('blank-section', [
-      {
-        id: 'blank-h1',
-        type: 'heading',
-        text: 'Your Newsletter Title',
-        level: 'h1',
-        color: '#111827',
-        fontSize: 24,
-        transform: 'none',
-        letterSpacing: '0px',
-        marginTop: 10,
-        marginBottom: 15,
-      },
-      {
-        id: 'blank-p1',
-        type: 'paragraph',
-        content:
-          'Start editing, or drag elements from the left panel into this section.',
-        color: '#4b5563',
-        fontSize: 16,
-        lineHeight: 1.6,
-        marginTop: 0,
-        marginBottom: 20,
-      },
-    ]),
+    {
+      ...bareSection('blank-header', [
+        {
+          // No typography of its own: a new newsletter is entirely
+          // theme-driven, so editing Theme restyles it.
+          id: 'blank-h1',
+          type: 'heading',
+          label: 'Heading',
+          text: 'Your Newsletter Title',
+          level: 'h1',
+          marginTop: 10,
+          marginBottom: 15,
+        },
+      ]),
+      label: 'Header',
+    },
+    {
+      ...bareSection('blank-body', [
+        {
+          id: 'blank-p1',
+          type: 'paragraph',
+          label: 'Text',
+          content:
+            'Click this text to edit it, or drag a block in from the left panel.',
+          marginTop: 0,
+          marginBottom: 20,
+        },
+      ]),
+      label: 'Body',
+    },
+    { ...bareSection('blank-footer', []), label: 'Footer' },
   ],
 };
 
