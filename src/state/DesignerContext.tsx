@@ -46,7 +46,7 @@ const LOCAL_STORAGE_KEY = 'gmail_newsletter_designer_template_v1';
 /** How long "Saving…" stays up. Purely so the state is legible. */
 const SAVE_FLASH_MS = 500;
 
-export type RailTab = 'blocks' | 'sections' | 'theme' | 'addons';
+export type RailTab = 'blocks' | 'sections' | 'theme' | 'addons' | 'help';
 export type InspectorTab = 'content' | 'styles' | 'visibility' | 'code';
 export type ViewMode = 'desktop' | 'mobile';
 export type PanelMode = 'rail' | 'inspector';

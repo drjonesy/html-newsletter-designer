@@ -4,6 +4,7 @@ import { BlocksPanel } from '../panels/BlocksPanel';
 import { SectionsPanel } from '../panels/SectionsPanel';
 import { ThemePanel } from '../panels/ThemePanel';
 import { AddonsPanel } from '../panels/AddonsPanel';
+import { HelpPanel } from '../panels/HelpPanel';
 import { BlockInspector } from '../panels/inspector/BlockInspector';
 
 /**
@@ -33,8 +34,10 @@ export const LeftPanel: React.FC = () => {
         <SectionsPanel />
       ) : ui.railTab === 'theme' ? (
         <ThemePanel />
-      ) : (
+      ) : ui.railTab === 'addons' ? (
         <AddonsPanel />
+      ) : (
+        <HelpPanel />
       )}
     </aside>
   );
