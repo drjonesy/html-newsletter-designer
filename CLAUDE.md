@@ -140,9 +140,10 @@ type to `INLINE_EDITABLE_TYPES` in `Canvas.tsx` — see *Inline editing* below.
 
 ### Nesting
 
-Three block types hold `childElements: EmailElement[]` — `section`, the general-purpose
-box with per-side borders and padding; `row`, a strip of columns; and `column`, one cell
-of a row. All three nest arbitrarily deep.
+Three block types hold `childElements: EmailElement[]` — `section`, the top-level grouping
+the Sections outline manages; `row`, a strip of columns; and `column`, one cell of a row,
+carrying the per-side borders, padding and fill that make it a box. All three nest
+arbitrarily deep.
 
 Never test `el.type === 'section'` to decide whether to recurse. Use `isContainerElement(el)`
 from [elementHelpers.ts](src/utils/elementHelpers.ts), which narrows to `ContainerElement`.
@@ -171,11 +172,23 @@ Two consequences worth remembering:
 
 A `row` is one `<table>`, one `<tr>`, and a `<td>` per column. It deliberately has **no
 frame of its own** — no fill, border or outer padding — so it stays a single table however
-many columns it has; framing belongs to the section around it or to the individual
-columns, whose padding and fill land on the `<td>` (the one box Outlook's Word engine pads
-reliably).
+many columns it has; framing belongs to the individual columns, whose border, padding,
+radius and fill land on the `<td>` (the one box Outlook's Word engine pads reliably).
 
-Three things are load-bearing:
+**A row is also the palette's general-purpose box.** "1 Column", "2 Columns" and "3
+Columns" are one type in three shapes, and any of them changes count from its Styles tab.
+There is no Section item in the palette: a column carries the same box controls a section
+does, so a one-column row does that job, and two boxes under different names doing the
+same thing is how the two drift. The `section` type is still what the Sections outline
+manages at the top level, what `BLANK_CANVAS_TEMPLATE` seeds, and what `migrateToSections`
+wraps loose blocks in — it just isn't something you add from the palette any more.
+
+Four things are load-bearing:
+
+- **A bare one-column row emits only its blocks.** `renderRow` returns early when there's
+  one column, it draws nothing, and the row has no margins — the same bargain `section`
+  strikes, and the reason wrapping content in one is free. Two cells side by side *are*
+  the layout, so the early return is single-column only.
 
 - **The gap is a spacer cell, not padding.** Padding on the columns would inset the row's
   outer edges too. The gap cell holds a `<div>` of the same height, which is what carries
@@ -522,12 +535,13 @@ lives in `DesignerContext` because `dataTransfer` can't be read during `dragover
 canvas has to know what's coming to decide whether a block is a legal target, so it's
 passed through state instead.
 
-What it carries is a **`BlockRecipe`, not an `ElementType`**. "2 Columns" and "3 Columns"
-are both a `row`, differing only in how many `column`s it starts with — a shape rather
-than a type — so an `ElementType` wouldn't say enough to build the block. `recipeType`
-resolves a recipe back to its type wherever a placement rule needs one, which is what
-keeps a dragged "3 Columns" obeying exactly the same rules as any other row. Add a new
-palette preset by adding a recipe, not an `ElementType`.
+What it carries is a **`BlockRecipe`, not an `ElementType`**. "1 Column", "2 Columns" and
+"3 Columns" are all a `row`, differing only in how many `column`s it starts with — a shape
+rather than a type — so an `ElementType` wouldn't say enough to build the block.
+`recipeType` resolves a recipe back to its type wherever a placement rule needs one, which
+is what keeps a dragged "3 Columns" obeying exactly the same rules as any other row. Add a
+new palette preset by adding a recipe, not an `ElementType`; `columns-N` is parsed for its
+count, so a fourth card needs only a list entry.
 
 Two consequences:
 

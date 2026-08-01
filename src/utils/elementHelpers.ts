@@ -560,9 +560,16 @@ export function createNewElement(type: ElementType): EmailElement {
       };
 
     case 'column':
-      // Half a two-column row. Whoever builds the row overwrites `width`;
-      // `columnWidths` in the generator falls back to an even split anyway, so
-      // a stray default here can't produce a broken table.
+      /*
+        Half a two-column row. Whoever builds the row overwrites `width`;
+        `columnWidths` in the generator falls back to an even split anyway, so
+        a stray default here can't produce a broken table.
+
+        Draws nothing by default — no border, padding or fill. A column that
+        frames itself would put a box around every cell of every layout, and
+        `renderRow`'s early return depends on "unstyled" being the starting
+        point for a one-column row to stay free.
+      */
       return {
         id,
         type: 'column',
@@ -570,6 +577,13 @@ export function createNewElement(type: ElementType): EmailElement {
         width: 50,
         verticalAlign: 'top',
         bgColor: 'transparent',
+        borderColor: '#cbd5e1',
+        borderStyle: 'solid',
+        borderTopWidth: 0,
+        borderRightWidth: 0,
+        borderBottomWidth: 0,
+        borderLeftWidth: 0,
+        borderRadius: 0,
         paddingTop: 0,
         paddingRight: 0,
         paddingBottom: 0,
@@ -673,7 +687,7 @@ export function createColumnRow(count: number): RowElement {
   const row = createNewElement('row') as RowElement;
   return {
     ...row,
-    label: `${count} Columns`,
+    label: `${count} Column${count === 1 ? '' : 's'}`,
     childElements: createColumns(count),
   };
 }
@@ -695,14 +709,25 @@ export function createColumnRow(count: number): RowElement {
  * `recipeType` resolves — so a dragged "3 Columns" obeys exactly the same rules
  * as any other row.
  */
-export type BlockRecipe = ElementType | 'columns-2' | 'columns-3';
+export type BlockRecipe =
+  | ElementType
+  | 'columns-1'
+  | 'columns-2'
+  | 'columns-3';
+
+/** The column count a `columns-N` recipe asks for, or null for anything else. */
+function recipeColumns(recipe: BlockRecipe): number | null {
+  const match = /^columns-(\d+)$/.exec(recipe);
+  return match ? Number(match[1]) : null;
+}
 
 export function recipeType(recipe: BlockRecipe): ElementType {
-  return recipe === 'columns-2' || recipe === 'columns-3' ? 'row' : recipe;
+  return recipeColumns(recipe) === null ? (recipe as ElementType) : 'row';
 }
 
 export function createFromRecipe(recipe: BlockRecipe): EmailElement {
-  if (recipe === 'columns-2') return createColumnRow(2);
-  if (recipe === 'columns-3') return createColumnRow(3);
-  return createNewElement(recipe);
+  const columns = recipeColumns(recipe);
+  return columns === null
+    ? createNewElement(recipe as ElementType)
+    : createColumnRow(columns);
 }

@@ -1,10 +1,26 @@
 import React, { useState } from 'react';
-import { Columns3, Copy, Plus, Rows3, Trash2 } from 'lucide-react';
+import {
+  Columns2,
+  Columns3,
+  Copy,
+  Plus,
+  Rows3,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import { EmailElement } from '../../types';
 import { blockName, isContainerElement } from '../../utils/elementHelpers';
 import { useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
 import { PanelBody, PanelHeader } from './PanelHeader';
+
+/** Keeps a row's outline icon matching the palette card it came from. */
+const COLUMN_ICONS: Record<number, React.ComponentType<{ className?: string }>> =
+  {
+    1: Square,
+    2: Columns2,
+    3: Columns3,
+  };
 
 /**
  * The email's structure, one row per top-level section.
@@ -63,8 +79,11 @@ export const SectionsPanel: React.FC = () => {
               const drop = dropId?.id === section.id ? dropId : null;
               // A row of columns can sit at the top level too, and the outline
               // is the reliable way to select one — but it isn't a section, so
-              // it shouldn't wear a section's icon.
-              const Icon = section.type === 'row' ? Columns3 : Rows3;
+              // it wears the same icon the palette gave it.
+              const Icon =
+                section.type === 'row'
+                  ? COLUMN_ICONS[(section.childElements || []).length] ?? Columns3
+                  : Rows3;
 
               return (
                 <li

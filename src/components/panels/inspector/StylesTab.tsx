@@ -478,6 +478,16 @@ const RowStyles: React.FC<EditorProps<RowElement>> = ({ element, update }) => {
         bottom={element.marginBottom}
         onChange={(next) => update({ ...element, ...next })}
       />
+
+      {columns.length === 1 && (
+        <FieldGroup>
+          <p className="text-xs leading-relaxed text-slate-500">
+            A single column with no border, padding, margin or fill emits
+            nothing of its own — only its blocks. That's what lets you group
+            content without adding a byte to the email.
+          </p>
+        </FieldGroup>
+      )}
     </>
   );
 };
@@ -495,7 +505,9 @@ const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({
         <NumberStepper
           value={Number(element.width.toFixed(2))}
           min={5}
-          max={95}
+          // 100 is the real value for the only column of a one-column row —
+          // clamping below it would make the field disagree with the canvas.
+          max={100}
           suffix="%"
           onChange={(width) => update({ ...element, width })}
         />
@@ -513,6 +525,53 @@ const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({
           onChange={(bgColor) =>
             updateElement({ ...element, bgColor }, { coalesceKey: `bg:${key_}` })
           }
+        />
+      </FieldGroup>
+
+      {/*
+        The same border control a section gets, because a one-column row is the
+        general-purpose box — it's what "1 Column" in the palette makes.
+      */}
+      <FieldGroup label="Border">
+        <BorderEditor
+          widths={{
+            top: element.borderTopWidth,
+            right: element.borderRightWidth,
+            bottom: element.borderBottomWidth,
+            left: element.borderLeftWidth,
+          }}
+          style={element.borderStyle}
+          color={element.borderColor}
+          onWidths={(next) =>
+            update({
+              ...element,
+              ...(next.top !== undefined ? { borderTopWidth: next.top } : {}),
+              ...(next.right !== undefined
+                ? { borderRightWidth: next.right }
+                : {}),
+              ...(next.bottom !== undefined
+                ? { borderBottomWidth: next.bottom }
+                : {}),
+              ...(next.left !== undefined ? { borderLeftWidth: next.left } : {}),
+            })
+          }
+          onStyle={(borderStyle) => update({ ...element, borderStyle })}
+          onColor={(borderColor) =>
+            updateElement(
+              { ...element, borderColor },
+              { coalesceKey: `border:${key_}` }
+            )
+          }
+        />
+      </FieldGroup>
+
+      <FieldGroup label="Rounded corners">
+        <NumberStepper
+          value={element.borderRadius}
+          min={0}
+          max={40}
+          icon={<Scan className="h-4 w-4" />}
+          onChange={(borderRadius) => update({ ...element, borderRadius })}
         />
       </FieldGroup>
 

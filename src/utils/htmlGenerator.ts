@@ -1,4 +1,5 @@
 import {
+  ColumnElement,
   EmailElement,
   EmailSettings,
   NewsletterTemplate,
@@ -162,13 +163,30 @@ function columnCell(
   const bg =
     column?.bgColor && column.bgColor !== 'transparent' ? column.bgColor : '';
 
+  const borders = column
+    ? sideBorders(
+        {
+          top: column.borderTopWidth,
+          right: column.borderRightWidth,
+          bottom: column.borderBottomWidth,
+          left: column.borderLeftWidth,
+        },
+        column.borderStyle,
+        column.borderColor
+      )
+    : '';
+
   const style = [
     `width:${pct(width)}%;`,
     `vertical-align:${valign};`,
     column
       ? `padding:${column.paddingTop}px ${column.paddingRight}px ${column.paddingBottom}px ${column.paddingLeft}px;`
       : '',
+    borders,
     bg ? `background-color:${bg};` : '',
+    column && column.borderRadius > 0
+      ? `border-radius:${column.borderRadius}px;`
+      : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -199,6 +217,21 @@ function columnGapCell(gap: number): string {
   return `    <td class="${COLUMN_GAP_CLASS}" width="${gap}" style="width:${gap}px; font-size:0; line-height:0;"><div style="height:${gap}px; line-height:${gap}px; font-size:1px;">&nbsp;</div></td>`;
 }
 
+/** True for a column that draws no box of its own. */
+function isBareColumn(column: ColumnElement): boolean {
+  return (
+    column.borderTopWidth === 0 &&
+    column.borderRightWidth === 0 &&
+    column.borderBottomWidth === 0 &&
+    column.borderLeftWidth === 0 &&
+    column.paddingTop === 0 &&
+    column.paddingRight === 0 &&
+    column.paddingBottom === 0 &&
+    column.paddingLeft === 0 &&
+    (!column.bgColor || column.bgColor === 'transparent')
+  );
+}
+
 function renderRow(
   element: RowElement,
   settings: EmailSettings,
@@ -208,6 +241,30 @@ function renderRow(
   // No columns means no cells, and a `<tr>` with none is invalid markup. The
   // canvas shows a placeholder to drop into; the email shows nothing.
   if (children.length === 0) return '';
+
+  /*
+    A one-column row that draws nothing emits only its blocks — the same
+    bargain a bare `section` strikes, and it matters more now that "1 Column"
+    is what the palette offers as the general-purpose box. There is no layout
+    to express with a single unstyled cell, and Gmail clips at ~102KB, so the
+    wrapper table would be pure weight. The blank-line join matches how
+    `generateEmailHtml` joins top-level blocks, making the wrap byte-neutral
+    rather than merely render-neutral.
+
+    Only for one column: two cells side by side *are* the layout.
+  */
+  const only = children.length === 1 ? children[0] : null;
+  if (
+    only &&
+    only.type === 'column' &&
+    isBareColumn(only) &&
+    element.marginTop === 0 &&
+    element.marginBottom === 0
+  ) {
+    return (only.childElements || [])
+      .map((child) => renderElementToHtml(child, settings, opts))
+      .join('\n\n');
+  }
 
   const gap = Math.max(0, element.gap || 0);
   const widths = columnWidths(children);

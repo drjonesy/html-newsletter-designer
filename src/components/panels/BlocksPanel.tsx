@@ -11,7 +11,7 @@ import {
   MousePointerClick,
   MoveVertical,
   Quote,
-  SquareDashed,
+  Square,
   Type,
 } from 'lucide-react';
 import { BlockRecipe } from '../../utils/elementHelpers';
@@ -28,15 +28,18 @@ interface PaletteItem {
 /**
  * The structural blocks — the ones that hold other blocks.
  *
- * Section is here as well as in the Sections outline. The outline manages the
- * email's top-level structure; this is how you get a section *inside* another
- * one, which the outline deliberately doesn't show.
+ * All three are the same `row` type in different shapes, which is why the
+ * palette's payload is a `BlockRecipe` rather than an `ElementType`. "1 Column"
+ * is the general-purpose box: it holds blocks full-width, takes a border, fill
+ * and padding on its column, and becomes a two- or three-column layout by
+ * raising the count on its Styles tab.
  *
- * The two column entries are the same `row` type in different shapes, which is
- * why the palette's payload is a `BlockRecipe` rather than an `ElementType`.
+ * There is no separate Section item. The `section` type is still what the
+ * Sections outline manages at the top level, but as a palette block it was a
+ * second box that did the same job under a different name.
  */
 const SECTION_BLOCKS: PaletteItem[] = [
-  { recipe: 'section', label: 'Section', icon: SquareDashed },
+  { recipe: 'columns-1', label: '1 Column', icon: Square },
   { recipe: 'columns-2', label: '2 Columns', icon: Columns2 },
   { recipe: 'columns-3', label: '3 Columns', icon: Columns3 },
 ];
@@ -100,7 +103,7 @@ export const BlocksPanel: React.FC = () => {
               setNotice({
                 tone: 'success',
                 message:
-                  'Blocks live inside sections. Pick a section in the Sections panel (or click one on the canvas), then click a block to drop it in — or drag a block straight onto the section you want. Columns are a section that holds blocks side by side; each column takes its own blocks.',
+                  'Blocks live inside sections. Pick a section in the Sections panel (or click one on the canvas), then click a block to drop it in — or drag a block straight onto the section you want. A 1 Column block is a plain full-width box; 2 and 3 put blocks side by side, and each column takes its own blocks. You can change the count on any of them from its Styles tab.',
               })
             }
           >

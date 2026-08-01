@@ -226,6 +226,22 @@ export interface ColumnElement extends BaseElement {
   verticalAlign: 'top' | 'middle' | 'bottom';
   /** `'transparent'` leaves whatever is behind the row showing. */
   bgColor: string;
+  /**
+   * Per-side borders, switched on by a non-zero width — the same shape as
+   * `SectionElement`, driven by the same Inspector control.
+   *
+   * A column carries the box styling a section does because a one-column row
+   * *is* the general-purpose box: it's what the palette's "1 Column" makes, and
+   * what used to be reached by adding a Section.
+   */
+  borderColor: string;
+  borderStyle: 'solid' | 'dashed' | 'dotted';
+  borderTopWidth: number;
+  borderRightWidth: number;
+  borderBottomWidth: number;
+  borderLeftWidth: number;
+  /** Ignored by Outlook's Word engine; harmless everywhere else. */
+  borderRadius: number;
   paddingTop: number;
   paddingRight: number;
   paddingBottom: number;
