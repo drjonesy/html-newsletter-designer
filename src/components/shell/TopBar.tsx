@@ -1,8 +1,17 @@
 import React, { useRef, useState } from 'react';
-import { Check, FilePlus2, Loader2, Mail } from 'lucide-react';
+import { Check, FilePlus2, Loader2, Mail, MailPlus } from 'lucide-react';
 import { useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
 import { TEMPLATE_FILE_EXTENSION } from '../../utils/templateFile';
+import { generateEmailHtml } from '../../utils/htmlGenerator';
+import { insertIntoGmail, isExtensionHost } from '../../utils/extensionHost';
+
+/*
+  Whether this build is a page inside the Chrome extension. Fixed for the life
+  of the document — the protocol can't change under us — so it's read once
+  rather than on every render, and the hosted app never renders the button.
+*/
+const IN_EXTENSION = isExtensionHost();
 
 /**
  * The application bar: brand, newsletter name, save state, and the two actions
@@ -27,8 +36,29 @@ export const TopBar: React.FC = () => {
   const [renaming, setRenaming] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  /* Only ever non-idle inside the extension — see `IN_EXTENSION`. */
+  const [inserting, setInserting] = useState(false);
+  const [insertNote, setInsertNote] = useState<string | null>(null);
+
+  async function handleInsert() {
+    setInserting(true);
+    setInsertNote(null);
+    const outcome = await insertIntoGmail(generateEmailHtml(template));
+    setInserting(false);
+    setInsertNote(
+      outcome.status === 'ok'
+        ? outcome.method === 'paste'
+          ? 'Inserted into your draft.'
+          : // Worth naming rather than reporting a plain success: this is the
+            // path that ships `data:` images as-is, and Gmail drops those.
+            'Inserted, but Gmail refused the paste — uploaded images may not survive.'
+        : outcome.error
+    );
+    window.setTimeout(() => setInsertNote(null), 6000);
+  }
+
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white pr-4">
+    <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white pr-4">
       <div className="flex h-14 w-14 shrink-0 items-center justify-center bg-accent-500 text-white">
         <Mail className="h-6 w-6" />
       </div>
@@ -101,7 +131,34 @@ export const TopBar: React.FC = () => {
         >
           Export HTML
         </button>
+
+        {/* The reason the extension exists, so it's the terminal action. Absent
+            from the hosted app entirely — there's no draft to insert into. */}
+        {IN_EXTENSION && (
+          <button
+            type="button"
+            onClick={handleInsert}
+            disabled={inserting}
+            className="flex items-center gap-1.5 rounded-md bg-accent-600 px-4 py-2 text-sm font-bold text-white hover:bg-accent-700 disabled:opacity-60"
+          >
+            {inserting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MailPlus className="h-4 w-4" />
+            )}
+            Insert into Gmail
+          </button>
+        )}
       </div>
+
+      {insertNote && (
+        <div
+          role="status"
+          className="absolute right-4 top-14 z-50 max-w-sm rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-lg"
+        >
+          {insertNote}
+        </div>
+      )}
 
       <input
         ref={fileInput}

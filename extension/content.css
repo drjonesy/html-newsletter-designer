@@ -1,0 +1,54 @@
+/*
+  The compose-window button.
+
+  Deliberately not a Gmail lookalike. It sits inches from Send, and a button
+  that borrows Gmail's styling while doing something Gmail didn't build is how
+  people click it by accident. The accent is the app's own (accent-500), so the
+  button reads as belonging to the designer it opens.
+
+  Everything is scoped under one class and states its own inherited values —
+  Gmail's stylesheet is aggressive, and an unstated property is one Gmail sets.
+*/
+.nl-designer-btn {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0 12px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 18px;
+  background: #944dbc;
+  color: #fff;
+  font: 500 14px/1 'Google Sans', Roboto, system-ui, sans-serif;
+  letter-spacing: 0.15px;
+  white-space: nowrap;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.nl-designer-btn:hover {
+  background: #a865cc;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+}
+
+.nl-designer-btn:active {
+  background: #7f3da3;
+}
+
+.nl-designer-btn:focus-visible {
+  outline: 2px solid #5b21b6;
+  outline-offset: 2px;
+}
+
+/*
+  Used only when the send button's cell can't be found — a Gmail layout change,
+  or a compose window in a shape this doesn't recognise. Better a button in the
+  corner than no button at all.
+*/
+.nl-designer-btn--floating {
+  position: absolute;
+  right: 16px;
+  bottom: 60px;
+  z-index: 999;
+  margin: 0;
+  box-shadow: 0 2px 8px rgba(60, 64, 67, 0.4);
+}

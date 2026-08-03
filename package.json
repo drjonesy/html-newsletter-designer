@@ -13,8 +13,9 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist extension/app",
+    "lint": "tsc --noEmit",
+    "build:extension": "vite build --base=./ --outDir=extension/app --emptyOutDir"
   },
   "dependencies": {
     "@lexical/html": "^0.48.0",

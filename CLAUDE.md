@@ -39,9 +39,17 @@ live in an `@theme` block in [src/index.css](src/index.css)) · TypeScript (`noE
 lucide-react for icons · [Lexical](https://lexical.dev/) for the Inspector's rich-text
 editor. `motion` is installed but not currently imported.
 
-Lexical is the only heavyweight dependency — it roughly doubles the bundle. It earns that
-by editing *one* thing: a paragraph's rich text in the Inspector's Content tab. Nothing
-else should be rebuilt on it, and the canvas keeps its own lighter `contenteditable`.
+Lexical is the only heavyweight dependency — 79KB gzipped, about 46% of the bundle. It
+earns that by editing *one* thing: a paragraph's rich text in the Inspector's Content tab.
+Nothing else should be rebuilt on it, and the canvas keeps its own lighter
+`contenteditable`.
+
+Because it's reached through one component behind one tab, **`RichTextField` is loaded
+with `React.lazy`** from [ContentTab.tsx](src/components/panels/inspector/ContentTab.tsx),
+which is what keeps the initial chunk at 105KB gzipped rather than 184KB. Importing it
+statically from anywhere — or importing any `@lexical/*` package outside `RichTextField` —
+silently pulls the whole editor back into the first load. `pnpm build` is the check: two
+chunks means it's still split, one means it isn't.
 
 The accent colour is a Tailwind scale, `accent-50` … `accent-900`. Use it rather than a
 hex — it's the one colour that distinguishes app chrome, and it appears in the rail, the

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { Suspense, lazy, useRef, useState } from 'react';
 import { GripVertical, Plus, Trash2, Upload } from 'lucide-react';
 import {
   ButtonElement,
@@ -10,7 +10,35 @@ import {
   SpacerElement,
 } from '../../../types';
 import { useDesigner } from '../../../state/DesignerContext';
-import { RichTextField } from '../../RichTextField';
+/*
+  Loaded on demand, because it is the only thing in the app that imports
+  Lexical — and Lexical is about 46% of the bundle.
+
+  It earns that weight for the one job it does, but it does that job behind a
+  tab: a paragraph's Content tab, which most sessions never open. The canvas
+  keeps its own lighter `contenteditable`, so nothing on first paint needs any
+  of this. Splitting it here costs one `Suspense` boundary and halves what the
+  app loads to show a newsletter.
+
+  Named export, so the module is remapped to the default `lazy` expects.
+*/
+const RichTextField = lazy(() =>
+  import('../../RichTextField').then((m) => ({ default: m.RichTextField }))
+);
+
+/**
+ * Stands in while the editor's chunk arrives.
+ *
+ * Sized to match the real editor's frame — a shorter placeholder would let the
+ * panel jump as it swaps in. Only ever seen once: `lazy` caches the resolved
+ * module, so re-selecting a paragraph doesn't suspend again.
+ */
+const RichTextFieldFallback: React.FC = () => (
+  <div className="rounded border border-slate-200 bg-white">
+    <div className="h-8 border-b border-slate-200 bg-slate-50" />
+    <div className="min-h-28 p-2 text-sm text-slate-400">Loading editor…</div>
+  </div>
+);
 import {
   FieldGroup,
   NumberStepper,
@@ -331,19 +359,21 @@ const ParagraphEditor: React.FC<{
           fresh editor rather than one carrying the previous block's undo
           history.
         */}
-        <RichTextField
-          key={element.id}
-          value={element.content}
-          onChange={(content) => update({ ...element, content })}
-          textStyle={{
-            color: element.color,
-            fontSize: `${element.fontSize}px`,
-            lineHeight: element.lineHeight,
-            fontFamily: settings.fontFamily,
-            fontWeight: element.fontWeight,
-            fontStyle: element.fontStyle,
-          }}
-        />
+        <Suspense fallback={<RichTextFieldFallback />}>
+          <RichTextField
+            key={element.id}
+            value={element.content}
+            onChange={(content) => update({ ...element, content })}
+            textStyle={{
+              color: element.color,
+              fontSize: `${element.fontSize}px`,
+              lineHeight: element.lineHeight,
+              fontFamily: settings.fontFamily,
+              fontWeight: element.fontWeight,
+              fontStyle: element.fontStyle,
+            }}
+          />
+        </Suspense>
         <p className="mt-2 text-xs text-slate-500">
           Longer copy is easier here; short edits are quicker on the canvas.
           Both write the same field.

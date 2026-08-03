@@ -16,3 +16,6 @@ bun.lockb
 .vscode/
 .idea/
 *.log
+
+# Built app bundle copied into the extension by `pnpm build:extension`.
+extension/app/
