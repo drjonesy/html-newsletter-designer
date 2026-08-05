@@ -15,7 +15,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist extension/app",
     "lint": "tsc --noEmit",
-    "build:extension": "vite build --base=./ --outDir=extension/app --emptyOutDir"
+    "build:extension": "vite build --base=./ --outDir=extension/app --emptyOutDir",
+    "package:extension": "pnpm build:extension && mkdir -p dist && rm -f dist/newsletter-designer-extension.zip && cd extension && zip -qr ../dist/newsletter-designer-extension.zip . -x '.DS_Store' '**/.DS_Store' && echo 'dist/newsletter-designer-extension.zip'"
   },
   "dependencies": {
     "@lexical/html": "^0.48.0",

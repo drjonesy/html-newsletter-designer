@@ -19,3 +19,7 @@ bun.lockb
 
 # Built app bundle copied into the extension by `pnpm build:extension`.
 extension/app/
+
+# Chrome Web Store listing copy, screenshots, and promo art. Local working
+# material for the dashboard, not part of the app.
+Google_Store_Listing/

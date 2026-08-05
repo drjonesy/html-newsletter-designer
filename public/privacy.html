@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <title>Privacy Policy — HTML Newsletter Designer for Gmail</title>
+    <meta
+      name="description"
+      content="HTML Newsletter Designer for Gmail collects nothing. No server, no account, no network requests — everything happens locally in your browser."
+    />
+
+    <!--
+      Deliberately a plain static page in `public/`, not a route in the app.
+
+      Vite copies `public/` verbatim, so this is `/privacy.html` on the hosted
+      site the moment the app deploys — a stable URL the Chrome Web Store
+      listing can point at. Routing it through React would mean the store's
+      required policy URL depends on the app's JS bundle booting.
+
+      For the same reason it carries its own CSS rather than Tailwind's:
+      files in `public/` are never processed by the build, so a utility class
+      here would resolve to nothing. The palette below is copied from the
+      `@theme` block in src/index.css — if the accent is ever re-branded,
+      these hexes need the same edit.
+    -->
+    <style>
+      :root {
+        --accent-50: #faf5fc;
+        --accent-100: #f1e6f7;
+        --accent-200: #e1cbee;
+        --accent-500: #944dbc;
+        --accent-600: #7d3ba3;
+        --accent-700: #652e84;
+
+        --slate-50: #f8fafc;
+        --slate-200: #e2e8f0;
+        --slate-300: #cbd5e1;
+        --slate-500: #64748b;
+        --slate-600: #475569;
+        --slate-700: #334155;
+        --slate-900: #0f172a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--slate-50);
+        color: var(--slate-700);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* The app bar, restated: the accent square, the product name, and a way
+         back into the designer. Someone arriving from the store listing should
+         land somewhere that looks like the thing they were reading about. */
+      header.topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 56px;
+        padding-right: 16px;
+        background: #ffffff;
+        border-bottom: 1px solid var(--slate-200);
+      }
+
+      .mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        flex: 0 0 auto;
+        background: var(--accent-500);
+        color: #ffffff;
+      }
+
+      .mark svg {
+        width: 24px;
+        height: 24px;
+      }
+
+      .wordmark {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--slate-900);
+      }
+
+      .topbar a.back {
+        margin-left: auto;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--slate-600);
+        text-decoration: none;
+      }
+
+      .topbar a.back:hover {
+        background: var(--slate-50);
+        color: var(--slate-900);
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px 24px 72px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.25;
+        font-weight: 700;
+        color: var(--slate-900);
+      }
+
+      .updated {
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: var(--slate-500);
+      }
+
+      h2 {
+        margin: 40px 0 12px;
+        font-size: 19px;
+        font-weight: 700;
+        color: var(--slate-900);
+      }
+
+      p {
+        margin: 0 0 16px;
+      }
+
+      /* The lede. Tinted the way the Help panel's opening card is, because it
+         answers the same question that panel opens with — what this thing does
+         with your work — and the answer is the whole policy in three lines. */
+      .lede {
+        margin-top: 28px;
+        padding: 20px 22px;
+        border: 1px solid var(--accent-200);
+        border-radius: 10px;
+        background: var(--accent-50);
+      }
+
+      .lede p:last-child {
+        margin-bottom: 0;
+      }
+
+      .lede strong {
+        color: var(--slate-900);
+      }
+
+      ul {
+        margin: 0 0 16px;
+        padding-left: 22px;
+      }
+
+      li {
+        margin-bottom: 8px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0 0 16px;
+        font-size: 15px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--slate-200);
+      }
+
+      th {
+        font-weight: 700;
+        color: var(--slate-900);
+        border-bottom-color: var(--slate-300);
+      }
+
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: var(--slate-50);
+        border: 1px solid var(--slate-200);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.875em;
+        color: var(--slate-900);
+        white-space: nowrap;
+      }
+
+      a {
+        color: var(--accent-600);
+        font-weight: 600;
+      }
+
+      a:hover {
+        color: var(--accent-700);
+      }
+
+      footer {
+        margin-top: 48px;
+        padding-top: 20px;
+        border-top: 1px solid var(--slate-200);
+        font-size: 14px;
+        color: var(--slate-500);
+      }
+
+      /* The permissions table is the one block that can't shed a column, so it
+         scrolls inside itself rather than pushing the page sideways. */
+      .table-scroll {
+        overflow-x: auto;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 28px 18px 56px;
+        }
+
+        h1 {
+          font-size: 25px;
+        }
+
+        .wordmark {
+          font-size: 15px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="mark" aria-hidden="true">
+        <!-- lucide `mail`, the same glyph the app bar uses. -->
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect width="20" height="16" x="2" y="4" rx="2" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+      </div>
+      <span class="wordmark">HTML Newsletter Designer</span>
+      <a class="back" href="/">Open the designer</a>
+    </header>
+
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="updated">
+        For the <strong>HTML Newsletter Designer for Gmail</strong> Chrome
+        extension · Last updated August 4, 2026
+      </p>
+
+      <div class="lede">
+        <p>
+          <strong>This extension collects nothing.</strong> It has no server, no
+          account, and makes no network requests.
+        </p>
+        <p>
+          Everything it does happens locally in your browser, on your own
+          machine.
+        </p>
+      </div>
+
+      <h2>What data the extension handles</h2>
+
+      <p>
+        <strong>Your newsletter.</strong> The newsletter you design — text,
+        styling, and any images you upload — is saved in your browser's local
+        storage so your work is still there when you come back. It stays on your
+        computer. It is never uploaded, because there is nowhere to upload it
+        to.
+      </p>
+
+      <p>
+        <strong>Your Gmail compose window.</strong> When you click "Insert into
+        Gmail," the extension pastes the newsletter into the draft you started
+        from. To do that it reads the compose window's editable body element and
+        the location of the Send button. It does not read your inbox, your
+        message list, the contents of other messages, your contacts, or your
+        account information.
+      </p>
+
+      <p>
+        <strong>The clipboard.</strong> The finished newsletter is copied to your
+        clipboard so it can be pasted into the draft. The extension never
+        inspects what is already on your clipboard and never reads it for any
+        other purpose.
+      </p>
+
+      <p>
+        <strong>A tab pairing.</strong> So the finished email goes back to the
+        right compose window, the extension remembers which designer tab was
+        opened from which Gmail tab. This is two numeric tab IDs held in session
+        storage, cleared when you close the browser.
+      </p>
+
+      <h2>What the extension does not do</h2>
+
+      <ul>
+        <li>It does not collect, transmit, or store any personal data</li>
+        <li>
+          It does not use analytics, telemetry, tracking, or advertising of any
+          kind
+        </li>
+        <li>
+          It does not sell or share any data with third parties, because it has
+          none
+        </li>
+        <li>
+          It does not use Gmail APIs or OAuth — it never authenticates as you
+        </li>
+        <li>It makes no network requests at all</li>
+      </ul>
+
+      <h2>Permissions and why they exist</h2>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Permission</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>clipboardWrite</code></td>
+              <td>Copy the finished newsletter so the Gmail tab can paste it</td>
+            </tr>
+            <tr>
+              <td><code>clipboardRead</code></td>
+              <td>
+                Chrome requires it for the programmatic paste into the draft
+              </td>
+            </tr>
+            <tr>
+              <td><code>storage</code></td>
+              <td>Remember which designer tab belongs to which Gmail tab</td>
+            </tr>
+            <tr>
+              <td><code>https://mail.google.com/*</code></td>
+              <td>Add the compose button, and paste into the draft</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Third parties</h2>
+      <p>There are none. No data is transferred to anyone, for any purpose.</p>
+
+      <h2>Changes</h2>
+      <p>
+        If this policy changes, the updated version will be posted here with a
+        new date.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy:
+        <a href="mailto:rjermanjones@gmail.com">rjermanjones@gmail.com</a>
+      </p>
+
+      <footer>
+        The web version of the designer at this address behaves the same way:
+        there is no server, no account, and nothing you type leaves your
+        browser.
+      </footer>
+    </main>
+  </body>
+</html>

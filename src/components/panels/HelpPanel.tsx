@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlayCircle } from 'lucide-react';
+import { PlayCircle, ShieldCheck } from 'lucide-react';
 import { PanelBody, PanelHeader } from './PanelHeader';
 
 /**
@@ -47,6 +47,27 @@ export const HelpPanel: React.FC = () => (
           </p>
         </div>
       </div>
+
+      {/* An `<a>`, not a `HelpLink` — that control is a button precisely
+          because there was nowhere offline to point it. `public/privacy.html`
+          is a real page, and the href is *relative* so the one link resolves
+          in both builds: `/privacy.html` on the hosted site, and
+          `app/privacy.html` inside the extension, where the app is nested. */}
+      <a
+        href="privacy.html"
+        target="_blank"
+        rel="noreferrer"
+        className="mx-5 mt-4 flex items-start gap-3 rounded-lg border border-slate-200 px-4 py-4 hover:border-accent-300 hover:bg-accent-50"
+      >
+        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-accent-500" />
+        <div>
+          <p className="text-sm font-semibold text-slate-700">Privacy policy</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            What the Chrome extension does and doesn't touch. The short version:
+            nothing is collected, and nothing is sent anywhere.
+          </p>
+        </div>
+      </a>
     </PanelBody>
   </>
 );
