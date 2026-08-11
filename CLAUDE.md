@@ -354,6 +354,13 @@ different subtree can act on the text. Three invariants:
   no longer a DOM sibling of the text, so "did focus leave the editor?" is answered by the
   `data-editor-chrome` attribute. Put that attribute on anything that must not end the
   edit when clicked.
+- **The bar's own dropdowns are portalled to the body** (`Popover` in `TextToolbar`).
+  The strip is `overflow-x-auto` so it can scroll sideways on a narrow window, and an
+  overflow container clips in *both* axes — a menu hanging below the bar is cut off at
+  its bottom edge whatever its `z-index`, because stacking order can't escape a clipping
+  ancestor. `Popover` positions from the trigger's rect, re-places on capture-phase
+  scroll and resize, and carries `editorChromeProps` on the portalled node itself, since
+  it is no longer inside the toolbar's subtree for the blur check to find.
 - The **block-format dropdown is not a text command.** It changes the block's *type*
   (`convertTextBlock`) and goes through `updateElement`. Converting a paragraph to a
   heading flattens its markup — a heading holds one line of plain text — which is the

@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Baseline,
   Bold,
@@ -51,6 +52,98 @@ const Divider: React.FC = () => (
   <span className="mx-1 h-6 w-px shrink-0 bg-slate-200" />
 );
 
+/**
+ * A dropdown that escapes the toolbar.
+ *
+ * The bar scrolls sideways on a narrow window (`overflow-x-auto`), and an
+ * overflow container clips in *both* axes — an absolutely positioned menu
+ * hanging below the bar is cut off at its bottom edge no matter how high its
+ * `z-index` is, because a clipping ancestor isn't something stacking order can
+ * escape. So the menu is portalled to the body and positioned from the
+ * trigger's rect instead.
+ *
+ * `editorChromeProps` goes on the portalled node itself: it's no longer inside
+ * the toolbar's subtree, and `BlockBody` decides "did focus leave the editor?"
+ * by walking up from the newly focused node. Without it, opening the link box
+ * would end the edit it's meant to act on.
+ */
+const Popover: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  /** The trigger. The menu is placed under it and re-placed as it moves. */
+  anchor: HTMLElement | null;
+  /** Which edge of the anchor the menu lines up with. */
+  align?: 'left' | 'right';
+  className?: string;
+  children: React.ReactNode;
+}> = ({ open, onClose, anchor, align = 'left', className = '', children }) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchor) {
+      setPos(null);
+      return;
+    }
+
+    const place = () => {
+      const rect = anchor.getBoundingClientRect();
+      const width = menuRef.current?.offsetWidth ?? 0;
+      const left = align === 'right' ? rect.right - width : rect.left;
+      setPos({
+        top: rect.bottom + 4,
+        // Clamped to the viewport: unlike the bar, the menu has no scroll
+        // container of its own, so anything past the edge is unreachable.
+        left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+      });
+    };
+
+    place();
+    // Capture phase: the bar's own sideways scroll doesn't bubble to `window`,
+    // and it moves the anchor out from under a menu positioned once.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, anchor, align]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target) || anchor?.contains(target)) return;
+      onClose();
+    };
+    // Only watches — it never cancels the event, so clicking back into the text
+    // still places the caret where it was clicked.
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open, anchor, onClose]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      {...editorChromeProps}
+      {...keepSelection}
+      style={{
+        top: pos?.top ?? 0,
+        left: pos?.left ?? 0,
+        // Hidden for the single frame before it's measured, so a right-aligned
+        // menu doesn't flash at the wrong x.
+        visibility: pos ? 'visible' : 'hidden',
+      }}
+      className={`fixed z-50 rounded-lg border border-slate-200 bg-white shadow-lg ${className}`}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+};
+
 interface ToolButtonProps {
   onClick: () => void;
   title: string;
@@ -90,9 +183,10 @@ const SwatchMenu: React.FC<{
   fallback: string;
 }> = ({ title, icon, swatches, onPick, fallback }) => {
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="relative">
+    <div className="shrink-0" ref={anchor}>
       <button
         type="button"
         title={title}
@@ -105,11 +199,13 @@ const SwatchMenu: React.FC<{
         <ChevronDown className="h-3 w-3" />
       </button>
 
-      {open && (
-        <div
-          className="absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
-          {...keepSelection}
-        >
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchor={anchor.current}
+        className="w-44 p-2"
+      >
+        <div>
           <div className="grid grid-cols-6 gap-1">
             {swatches.map((color) => (
               <button
@@ -140,7 +236,7 @@ const SwatchMenu: React.FC<{
             Custom…
           </label>
         </div>
-      )}
+      </Popover>
     </div>
   );
 };
@@ -154,9 +250,10 @@ const LinkButton: React.FC<{
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const existing = useRef<string | null>(null);
+  const anchor = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="relative">
+    <div className="shrink-0" ref={anchor}>
       <ToolButton
         title="Link"
         onClick={() => {
@@ -168,11 +265,13 @@ const LinkButton: React.FC<{
         <Link2 className="h-4 w-4" />
       </ToolButton>
 
-      {open && (
-        <div
-          className="absolute left-0 top-full z-30 mt-1 flex w-72 items-center gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
-          {...keepSelection}
-        >
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchor={anchor.current}
+        className="w-72 p-2"
+      >
+        <div className="flex items-center gap-1">
           <input
             autoFocus
             value={url}
@@ -216,7 +315,7 @@ const LinkButton: React.FC<{
             </button>
           )}
         </div>
-      )}
+      </Popover>
     </div>
   );
 };
@@ -246,11 +345,12 @@ export const TextToolbar: React.FC = () => {
       : 16;
 
   const [showMore, setShowMore] = useState(false);
+  const moreAnchor = useRef<HTMLDivElement>(null);
 
   return (
     <div
       {...editorChromeProps}
-      className="flex h-14 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3"
+      className="flex h-14 shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3"
       role="toolbar"
       aria-label="Text formatting"
     >
@@ -365,15 +465,18 @@ export const TextToolbar: React.FC = () => {
         onUnlink={() => run({ kind: 'unlink' })}
       />
 
-      <div className="relative">
+      <div className="shrink-0" ref={moreAnchor}>
         <ToolButton title="More" onClick={() => setShowMore((v) => !v)}>
           <MoreHorizontal className="h-4 w-4" />
         </ToolButton>
-        {showMore && (
-          <div
-            className="absolute right-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
-            {...keepSelection}
-          >
+        <Popover
+          open={showMore}
+          onClose={() => setShowMore(false)}
+          anchor={moreAnchor.current}
+          align="right"
+          className="w-52 p-1"
+        >
+          <div>
             <button
               type="button"
               {...keepSelection}
@@ -387,7 +490,7 @@ export const TextToolbar: React.FC = () => {
               Clear formatting
             </button>
           </div>
-        )}
+        </Popover>
       </div>
 
       <span className="ml-auto shrink-0 pl-3 text-xs text-slate-400">
