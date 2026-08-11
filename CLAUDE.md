@@ -23,11 +23,32 @@ pnpm dev        # Vite dev server on :3000
 pnpm build      # production build to dist/
 pnpm preview    # serve the production build
 pnpm lint       # tsc --noEmit (this is the only check — there is no test suite or ESLint)
-pnpm clean      # rm -rf dist
+pnpm clean      # rm -rf dist extension/app
+
+pnpm build:extension    # build the app into extension/app/ for the Chrome extension
+pnpm package:extension  # build, then zip extension/ to dist/…-<manifest version>.zip
 ```
 
 Run `pnpm lint` after any change to `src/types.ts` — the discriminated union there is
 load-bearing and type errors surface nowhere else.
+
+### The Chrome extension
+
+`extension/` is the MV3 extension that opens the designer beside a Gmail compose window
+(`manifest.json`, `background.js`, `content.js`, `detect.js`, and its own README for
+loading it unpacked). The designer itself isn't rebuilt for it — `build:extension` is the
+ordinary Vite build with `--base=./`, because an extension page is loaded from a
+`chrome-extension://` origin where absolute `/assets/…` paths resolve to nothing.
+
+`package:extension` produces the store upload via
+[scripts/package-extension.mjs](scripts/package-extension.mjs). It zips from *inside*
+`extension/` so `manifest.json` lands at the archive root — the store rejects an upload
+that nests it in a folder — names the file after the manifest's `version`, drops the
+developer README, and deletes any existing archive first, since `zip` adds to one that
+already exists rather than replacing it. Bump `version` in
+[extension/manifest.json](extension/manifest.json) before packaging a release; the store
+refuses a version it has already seen. `pnpm lint` is not part of either command — the
+build strips types without checking them, so run it yourself before shipping.
 
 `pnpm-workspace.yaml` exists only to allow `esbuild`'s postinstall script (`allowBuilds`).
 Without it `pnpm build` fails on a missing platform binary. Do not delete it.
