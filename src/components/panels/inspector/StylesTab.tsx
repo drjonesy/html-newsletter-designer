@@ -1,15 +1,33 @@
 import React from 'react';
-import { Bold, Italic, Scan } from 'lucide-react';
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  Italic,
+  RotateCcw,
+  Scan,
+} from 'lucide-react';
 import {
   ColumnElement,
+  ElementType,
   EmailElement,
   RowElement,
   SectionElement,
+  TextAlign,
 } from '../../../types';
 import {
+  blockBackground,
+  blockBorder,
+  blockPadding,
+  blockRadius,
   createColumns,
   evenWidths,
   blockName,
+  withBlockBackground,
+  withBlockBorder,
+  withBlockPadding,
+  withBlockRadius,
 } from '../../../utils/elementHelpers';
 import {
   clearTextOverrides,
@@ -83,6 +101,207 @@ const EmphasisToggles: React.FC<{
       Italic
     </button>
   </div>
+);
+
+/**
+ * The fill behind a block — the one control every type has.
+ *
+ * Which field it writes is `withBlockBackground`'s business: `section`,
+ * `column` and `quote` keep their own long-standing `bgColor`, everything else
+ * uses the optional `backgroundColor` on `BaseElement`. The panel doesn't need
+ * to know, and blocks can't end up with two competing background controls.
+ */
+const BackgroundGroup: React.FC<{ element: EmailElement }> = ({ element }) => {
+  const { updateElement } = useDesigner();
+  const isBareText =
+    element.type === 'heading' ||
+    element.type === 'paragraph' ||
+    element.type === 'list';
+
+  return (
+    <FieldGroup label="Background">
+      <ColorField
+        clearable
+        value={blockBackground(element)}
+        fallback="#f8fafc"
+        onChange={(color) =>
+          updateElement(withBlockBackground(element, color), {
+            coalesceKey: `bg:${element.id}`,
+          })
+        }
+      />
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        {blockBackground(element)
+          ? isBareText
+            ? 'Painted behind the whole block. Padding, below, is what puts space between the colour and the text.'
+            : 'Painted behind the whole block.'
+          : 'No fill — whatever is behind the block shows through.'}
+      </p>
+    </FieldGroup>
+  );
+};
+
+/**
+ * What padding means on a type where it isn't simply "space inside the block".
+ *
+ * Absent is the common case and needs no explaining. These are the four that
+ * would otherwise surprise someone: two knobs that add up, a control that grows
+ * a block whose whole point is a stated size, and one that could be mistaken
+ * for the button's own.
+ */
+const PADDING_HINTS: Partial<Record<ElementType, string>> = {
+  button:
+    'The space around the button. How big the button itself is comes from Padding Y and X under Shape.',
+  list: 'Added to the indent, so the markers keep whatever hanging distance you gave them.',
+  spacer:
+    'Top and bottom add to the height — a cell is as tall as its content box plus its padding. Left and right inset the fill without changing that.',
+  row: 'Insets the whole strip. Space inside one cell belongs to that column.',
+};
+
+/**
+ * The space inside a block — the other control every type has.
+ *
+ * Which fields it writes is `withBlockPadding`'s business: `section`, `column`
+ * and `image` have required sides of their own, a `quote` reads all four absent
+ * as the 16/20 it used to hard-code, and everything else drops the fields once
+ * they're back to zero. The panel doesn't need to know, which is what keeps a
+ * type from ending up with two padding controls — the thing the four-sided
+ * section and the two-sided image were heading for.
+ */
+const PaddingGroup: React.FC<{ element: EmailElement }> = ({ element }) => {
+  const { updateElement } = useDesigner();
+  const p = blockPadding(element);
+  const hint = PADDING_HINTS[element.type];
+
+  return (
+    <FieldGroup label="Padding">
+      {/*
+        Keyed on the block, because `BoxSides` derives "apply to all sides" from
+        the values it opens with. This group is the one that never unmounts —
+        it's rendered for every type — so without the key a 16/20 quote selected
+        after a 20-all-round section would open linked and show a single 16.
+      */}
+      <BoxSides
+        key={element.id}
+        label="Padding"
+        values={{ top: p.top, right: p.right, bottom: p.bottom, left: p.left }}
+        max={100}
+        onChange={(next) =>
+          updateElement(withBlockPadding(element, next), {
+            coalesceKey: `padding:${element.id}`,
+          })
+        }
+      />
+      {hint && (
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">{hint}</p>
+      )}
+    </FieldGroup>
+  );
+};
+
+/**
+ * What the rounding rounds on a type where "the block's own box" isn't the
+ * whole story — a chip inside a cell, a picture inside one, and the one block
+ * that has been rounded by default since long before this control existed.
+ */
+const RADIUS_HINTS: Partial<Record<ElementType, string>> = {
+  button: 'Rounds the button itself, not the cell around it.',
+  image: 'Rounds the picture.',
+  quote: 'A quote is rounded by 4px until you say otherwise. 0 squares it off.',
+};
+
+/**
+ * How far a block's corners are rounded — the third control every type has.
+ *
+ * Which field it writes is `withBlockRadius`'s business: `section`, `column`
+ * and `button` require a radius of their own, a `quote` reads absent as the 4px
+ * it used to hard-code, and everything else drops the field once it's back to
+ * zero. The panel doesn't need to know, which is what keeps a type from ending
+ * up with two rounding controls — the thing the section, the column and the
+ * button each having their own was heading for.
+ */
+const RoundedCornersGroup: React.FC<{ element: EmailElement }> = ({
+  element,
+}) => {
+  const { updateElement } = useDesigner();
+  const hint = RADIUS_HINTS[element.type];
+
+  return (
+    <FieldGroup label="Rounded corners">
+      <NumberStepper
+        value={blockRadius(element)}
+        min={0}
+        max={40}
+        icon={<Scan className="h-4 w-4" />}
+        onChange={(radius) =>
+          updateElement(withBlockRadius(element, radius), {
+            coalesceKey: `radius:${element.id}`,
+          })
+        }
+      />
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        {hint ??
+          'Rounds the block’s own fill and border — blocks inside keep their own corners.'}{' '}
+        Ignored by Outlook’s Word engine, where corners stay square.
+      </p>
+    </FieldGroup>
+  );
+};
+
+const ALIGN_SEGMENTS: { value: TextAlign; label: string; icon: React.ReactNode }[] =
+  [
+    { value: 'left', label: 'Left', icon: <AlignLeft className="h-4 w-4" /> },
+    {
+      value: 'center',
+      label: 'Centre',
+      icon: <AlignCenter className="h-4 w-4" />,
+    },
+    { value: 'right', label: 'Right', icon: <AlignRight className="h-4 w-4" /> },
+  ];
+
+/**
+ * Left / centre / right, shared by every block that has an alignment.
+ *
+ * `value` is optional because on most blocks **absent means inherit** — no
+ * segment is raised, and the block follows the container around it. The reset
+ * is the only way back to that state once a segment has been picked, so it
+ * belongs to the control rather than to each of the seven callers; `image` and
+ * `button` omit `onReset`, their alignment being a field that is always set.
+ */
+const AlignmentGroup: React.FC<{
+  value?: TextAlign;
+  onChange: (align: TextAlign) => void;
+  onReset?: () => void;
+  label?: string;
+  /** Shown under the control once an alignment is set. */
+  hint?: string;
+}> = ({ value, onChange, onReset, label = 'Alignment', hint }) => (
+  <FieldGroup label={label}>
+    <SegmentedControl
+      value={value}
+      segments={ALIGN_SEGMENTS}
+      onChange={onChange}
+    />
+
+    {onReset &&
+      (value ? (
+        <button
+          type="button"
+          onClick={onReset}
+          title="Follow the block or section around this one"
+          className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-accent-600 hover:text-accent-700 hover:underline"
+        >
+          <RotateCcw className="h-3 w-3" />
+          Set on this block — inherit instead
+        </button>
+      ) : (
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          Inheriting from the section around it.
+        </p>
+      ))}
+
+    {hint && <p className="mt-2 text-xs leading-relaxed text-slate-500">{hint}</p>}
+  </FieldGroup>
 );
 
 /**
@@ -200,96 +419,64 @@ const BorderEditor: React.FC<{
   );
 };
 
-const SectionStyles: React.FC<EditorProps<SectionElement>> = ({
-  element,
-  update,
-  key_,
-}) => {
+/**
+ * What a border means on a type where "around the block" isn't the whole story
+ * — a chip inside a cell, a block that already draws a line of its own, and the
+ * one that has come with a rule since long before this control existed.
+ */
+const BORDER_HINTS: Partial<Record<ElementType, string>> = {
+  button:
+    'Draws around the button itself. Outlook can only show it when all four sides are the same width.',
+  divider:
+    'A frame around the whole block. The line across it is Line, above.',
+  image: 'Draws around the picture.',
+  quote: 'A quote has a 4px left rule until you say otherwise.',
+};
+
+/**
+ * The border every block can have — the fourth of the shared groups.
+ *
+ * Which fields it writes is `withBlockBorder`'s business: `section` and
+ * `column` require all six, a `quote` reads its widths absent as the 4px left
+ * rule it used to hard-code, and everything else drops them once no side is
+ * left. The panel doesn't need to know, which is what keeps a type from ending
+ * up with two border controls.
+ */
+const BorderGroup: React.FC<{ element: EmailElement }> = ({ element }) => {
   const { updateElement } = useDesigner();
+  const b = blockBorder(element);
+  const hint = BORDER_HINTS[element.type];
 
   return (
+    <FieldGroup label="Border">
+      <BorderEditor
+        widths={{ top: b.top, right: b.right, bottom: b.bottom, left: b.left }}
+        style={b.style}
+        color={b.color}
+        onWidths={(next) => updateElement(withBlockBorder(element, next))}
+        onStyle={(style) => updateElement(withBlockBorder(element, { style }))}
+        onColor={(color) =>
+          updateElement(withBlockBorder(element, { color }), {
+            coalesceKey: `border:${element.id}`,
+          })
+        }
+      />
+      {hint && (
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">{hint}</p>
+      )}
+    </FieldGroup>
+  );
+};
+
+const SectionStyles: React.FC<EditorProps<SectionElement>> = ({ element, update }) => {
+  return (
     <>
-      <FieldGroup label="Block background color">
-        <ColorField
-          clearable
-          value={element.bgColor}
-          fallback="#f8fafc"
-          onChange={(bgColor) =>
-            updateElement({ ...element, bgColor }, { coalesceKey: `bg:${key_}` })
-          }
-        />
-      </FieldGroup>
-
-      <FieldGroup label="Border">
-        <BorderEditor
-          widths={{
-            top: element.borderTopWidth,
-            right: element.borderRightWidth,
-            bottom: element.borderBottomWidth,
-            left: element.borderLeftWidth,
-          }}
-          style={element.borderStyle}
-          color={element.borderColor}
-          onWidths={(next) =>
-            update({
-              ...element,
-              ...(next.top !== undefined ? { borderTopWidth: next.top } : {}),
-              ...(next.right !== undefined
-                ? { borderRightWidth: next.right }
-                : {}),
-              ...(next.bottom !== undefined
-                ? { borderBottomWidth: next.bottom }
-                : {}),
-              ...(next.left !== undefined ? { borderLeftWidth: next.left } : {}),
-            })
-          }
-          onStyle={(borderStyle) => update({ ...element, borderStyle })}
-          onColor={(borderColor) =>
-            updateElement(
-              { ...element, borderColor },
-              { coalesceKey: `border:${key_}` }
-            )
-          }
-        />
-      </FieldGroup>
-
-      <FieldGroup label="Rounded corners">
-        <NumberStepper
-          value={element.borderRadius}
-          min={0}
-          max={40}
-          icon={<Scan className="h-4 w-4" />}
-          onChange={(borderRadius) => update({ ...element, borderRadius })}
-        />
-        <p className="mt-2 text-xs text-slate-500">
-          Ignored by Outlook's Word engine — corners stay square there. Harmless
-          everywhere else.
-        </p>
-      </FieldGroup>
-
-      <FieldGroup label="Padding">
-        <BoxSides
-          label="Padding"
-          values={{
-            top: element.paddingTop,
-            right: element.paddingRight,
-            bottom: element.paddingBottom,
-            left: element.paddingLeft,
-          }}
-          max={100}
-          onChange={(next) =>
-            update({
-              ...element,
-              ...(next.top !== undefined ? { paddingTop: next.top } : {}),
-              ...(next.right !== undefined ? { paddingRight: next.right } : {}),
-              ...(next.bottom !== undefined
-                ? { paddingBottom: next.bottom }
-                : {}),
-              ...(next.left !== undefined ? { paddingLeft: next.left } : {}),
-            })
-          }
-        />
-      </FieldGroup>
+      <AlignmentGroup
+        value={element.textAlign}
+        onChange={(textAlign) => update({ ...element, textAlign })}
+        onReset={() => update({ ...element, textAlign: undefined })}
+        hint="Applies to every block in the section. A block that sets its own alignment keeps it."
+      />
 
       <MarginGroup
         top={element.marginTop}
@@ -299,9 +486,9 @@ const SectionStyles: React.FC<EditorProps<SectionElement>> = ({
 
       <FieldGroup>
         <p className="text-xs leading-relaxed text-slate-500">
-          A section with no border, padding, margin or fill emits nothing of its
-          own — only its blocks. That's what lets you group content without
-          adding a byte to the email.
+          A section with no border, padding, margin, fill or alignment emits
+          nothing of its own — only its blocks. That's what lets you group
+          content without adding a byte to the email.
         </p>
       </FieldGroup>
     </>
@@ -444,7 +631,8 @@ const RowStyles: React.FC<EditorProps<RowElement>> = ({ element, update }) => {
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-500">
-            Padding, fill and an exact width live on the column itself.
+            A border, an exact width and padding inside one cell live on the
+            column itself. The row's own padding insets the whole strip.
           </p>
         </FieldGroup>
       )}
@@ -492,13 +680,7 @@ const RowStyles: React.FC<EditorProps<RowElement>> = ({ element, update }) => {
   );
 };
 
-const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({
-  element,
-  update,
-  key_,
-}) => {
-  const { updateElement } = useDesigner();
-
+const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({ element, update }) => {
   return (
     <>
       <FieldGroup label="Width">
@@ -517,87 +699,17 @@ const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({
         </p>
       </FieldGroup>
 
-      <FieldGroup label="Column background color">
-        <ColorField
-          clearable
-          value={element.bgColor}
-          fallback="#f8fafc"
-          onChange={(bgColor) =>
-            updateElement({ ...element, bgColor }, { coalesceKey: `bg:${key_}` })
-          }
-        />
-      </FieldGroup>
-
       {/*
         The same border control a section gets, because a one-column row is the
         general-purpose box — it's what "1 Column" in the palette makes.
       */}
-      <FieldGroup label="Border">
-        <BorderEditor
-          widths={{
-            top: element.borderTopWidth,
-            right: element.borderRightWidth,
-            bottom: element.borderBottomWidth,
-            left: element.borderLeftWidth,
-          }}
-          style={element.borderStyle}
-          color={element.borderColor}
-          onWidths={(next) =>
-            update({
-              ...element,
-              ...(next.top !== undefined ? { borderTopWidth: next.top } : {}),
-              ...(next.right !== undefined
-                ? { borderRightWidth: next.right }
-                : {}),
-              ...(next.bottom !== undefined
-                ? { borderBottomWidth: next.bottom }
-                : {}),
-              ...(next.left !== undefined ? { borderLeftWidth: next.left } : {}),
-            })
-          }
-          onStyle={(borderStyle) => update({ ...element, borderStyle })}
-          onColor={(borderColor) =>
-            updateElement(
-              { ...element, borderColor },
-              { coalesceKey: `border:${key_}` }
-            )
-          }
-        />
-      </FieldGroup>
-
-      <FieldGroup label="Rounded corners">
-        <NumberStepper
-          value={element.borderRadius}
-          min={0}
-          max={40}
-          icon={<Scan className="h-4 w-4" />}
-          onChange={(borderRadius) => update({ ...element, borderRadius })}
-        />
-      </FieldGroup>
-
-      <FieldGroup label="Padding">
-        <BoxSides
-          label="Padding"
-          values={{
-            top: element.paddingTop,
-            right: element.paddingRight,
-            bottom: element.paddingBottom,
-            left: element.paddingLeft,
-          }}
-          max={60}
-          onChange={(next) =>
-            update({
-              ...element,
-              ...(next.top !== undefined ? { paddingTop: next.top } : {}),
-              ...(next.right !== undefined ? { paddingRight: next.right } : {}),
-              ...(next.bottom !== undefined
-                ? { paddingBottom: next.bottom }
-                : {}),
-              ...(next.left !== undefined ? { paddingLeft: next.left } : {}),
-            })
-          }
-        />
-      </FieldGroup>
+      <AlignmentGroup
+        label="Horizontal alignment"
+        value={element.textAlign}
+        onChange={(textAlign) => update({ ...element, textAlign })}
+        onReset={() => update({ ...element, textAlign: undefined })}
+        hint="Applies to every block in the column. A block that sets its own alignment keeps it."
+      />
 
       <FieldGroup label="Vertical alignment">
         <SegmentedControl
@@ -620,13 +732,13 @@ const ColumnStyles: React.FC<EditorProps<ColumnElement>> = ({
 /* --- Everything else ------------------------------------------------------- */
 
 /**
- * Per-block appearance.
+ * Per-block appearance, minus the background every type shares.
  *
  * One switch over the union, so `pnpm lint` fails loudly if a new element type
  * arrives without an editor — the same guard the generator and `createNewElement`
  * rely on.
  */
-export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
+const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
   const { settings, updateElement } = useDesigner();
   const update: Update = (el) => updateElement(el);
   const key_ = element.id;
@@ -706,6 +818,17 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
             </div>
           </FieldGroup>
 
+          <AlignmentGroup
+            value={element.textAlign}
+            onChange={(textAlign) => update({ ...element, textAlign })}
+            onReset={() => update({ ...element, textAlign: undefined })}
+            hint={
+              element.type === 'list'
+                ? 'Centring or right-aligning a list moves its markers in with the text, so they travel with it.'
+                : undefined
+            }
+          />
+
           {element.type === 'list' && (
             <FieldGroup label="Layout">
               <div className="space-y-3">
@@ -741,10 +864,14 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
     case 'button':
       return (
         <>
+          {/*
+            "Fill", not "Background": the block's background is the shared
+            group above, and this is the colour of the button itself.
+          */}
           <FieldGroup label="Colours">
             <div className="space-y-3">
               <ColorField
-                label="Background"
+                label="Button fill"
                 value={element.bgColor}
                 onChange={(bgColor) => updateColor({ ...element, bgColor }, 'bg')}
               />
@@ -768,14 +895,11 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
                 value={element.fontSize}
                 onChange={(fontSize) => update({ ...element, fontSize })}
               />
-              <NumberStepper
-                label="Rounded corners"
-                min={0}
-                max={40}
-                icon={<Scan className="h-4 w-4" />}
-                value={element.borderRadius}
-                onChange={(borderRadius) => update({ ...element, borderRadius })}
-              />
+              {/*
+                The chip's own padding — what makes the button bigger than its
+                label. The space *around* the button is the shared Padding group
+                above, which is why these two say Y and X rather than sides.
+              */}
               <div className="grid grid-cols-2 gap-3">
                 <NumberStepper
                   label="Padding Y"
@@ -808,17 +932,37 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
             </div>
           </FieldGroup>
 
-          <FieldGroup label="Alignment">
-            <SegmentedControl
+          <FieldGroup label="Width">
+            <ToggleSwitch
+              checked={!!element.fullWidth}
+              label="Full width"
+              hint="Fills the section or column the button sits in."
+              onChange={(fullWidth) =>
+                // Stored only when on: absent is the default shrink-to-fit
+                // button, and a saved file shouldn't gain a field for it.
+                update({ ...element, fullWidth: fullWidth || undefined })
+              }
+            />
+            {element.fullWidth && (
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                Outlook's Word engine sizes full-width buttons in tenths of a
+                percent, so it may land a pixel or two off the column's edge.
+              </p>
+            )}
+          </FieldGroup>
+
+          {/*
+            No reset: a button's alignment is a required field on the cell that
+            holds it, so there is no "inherit" state to go back to. A full-width
+            button has nowhere to sit but where it is, so the control goes away
+            rather than sitting there doing nothing — its label centres.
+          */}
+          {!element.fullWidth && (
+            <AlignmentGroup
               value={element.alignment}
-              segments={[
-                { value: 'left', label: 'Left' },
-                { value: 'center', label: 'Centre' },
-                { value: 'right', label: 'Right' },
-              ]}
               onChange={(alignment) => update({ ...element, alignment })}
             />
-          </FieldGroup>
+          )}
 
           <MarginGroup
             top={element.marginTop}
@@ -831,17 +975,10 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
     case 'image':
       return (
         <>
-          <FieldGroup label="Alignment">
-            <SegmentedControl
-              value={element.alignment}
-              segments={[
-                { value: 'left', label: 'Left' },
-                { value: 'center', label: 'Centre' },
-                { value: 'right', label: 'Right' },
-              ]}
-              onChange={(alignment) => update({ ...element, alignment })}
-            />
-          </FieldGroup>
+          <AlignmentGroup
+            value={element.alignment}
+            onChange={(alignment) => update({ ...element, alignment })}
+          />
 
           <FieldGroup label="Spacing">
             <BoxSides
@@ -903,69 +1040,17 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
       );
 
     case 'quote': {
-      /*
-        Mirrors `quoteBorderWidths` in the generator: all four absent means a
-        quote saved before the sides were configurable, which drew a 4px left
-        rule. Showing 0s here would tell the author their accent bar is off
-        while the export still draws it.
-      */
-      const unset =
-        element.borderTopWidth === undefined &&
-        element.borderRightWidth === undefined &&
-        element.borderBottomWidth === undefined &&
-        element.borderLeftWidth === undefined;
-      const quoteWidths: Record<Side, number> = unset
-        ? { top: 0, right: 0, bottom: 0, left: 4 }
-        : {
-            top: element.borderTopWidth ?? 0,
-            right: element.borderRightWidth ?? 0,
-            bottom: element.borderBottomWidth ?? 0,
-            left: element.borderLeftWidth ?? 0,
-          };
-
       return (
         <>
-          <FieldGroup label="Border">
-            <BorderEditor
-              widths={quoteWidths}
-              style={element.borderStyle ?? 'solid'}
-              color={element.borderColor}
-              onWidths={(next) =>
-                update({
-                  ...element,
-                  // Write all four, never a partial patch: a legacy quote has
-                  // none of them, and leaving three undefined would keep it on
-                  // the "unset" path and snap the border back to left-only.
-                  borderTopWidth: next.top ?? quoteWidths.top,
-                  borderRightWidth: next.right ?? quoteWidths.right,
-                  borderBottomWidth: next.bottom ?? quoteWidths.bottom,
-                  borderLeftWidth: next.left ?? quoteWidths.left,
-                  borderStyle: element.borderStyle ?? 'solid',
-                })
-              }
-              onStyle={(borderStyle) => update({ ...element, borderStyle })}
-              onColor={(borderColor) =>
-                updateColor({ ...element, borderColor }, 'border')
+          {/* The fill is the shared Background group above — a quote's is its
+              own `bgColor`, which is why only the text colour is left here. */}
+          <FieldGroup label="Text colour">
+            <ColorField
+              value={element.textColor}
+              onChange={(textColor) =>
+                updateColor({ ...element, textColor }, 'fg')
               }
             />
-          </FieldGroup>
-
-          <FieldGroup label="Colours">
-            <div className="space-y-3">
-              <ColorField
-                label="Background"
-                value={element.bgColor}
-                clearable
-                onChange={(bgColor) => updateColor({ ...element, bgColor }, 'bg')}
-              />
-              <ColorField
-                label="Text"
-                value={element.textColor}
-                onChange={(textColor) =>
-                  updateColor({ ...element, textColor }, 'fg')
-                }
-              />
-            </div>
           </FieldGroup>
 
           <FieldGroup label="Text">
@@ -992,6 +1077,12 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
             </div>
           </FieldGroup>
 
+          <AlignmentGroup
+            value={element.textAlign}
+            onChange={(textAlign) => update({ ...element, textAlign })}
+            onReset={() => update({ ...element, textAlign: undefined })}
+          />
+
           <MarginGroup
             top={element.marginTop}
             bottom={element.marginBottom}
@@ -1003,16 +1094,37 @@ export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => {
 
     case 'spacer':
     case 'custom-html':
-      // Nothing to style — a spacer is its height (Content tab), and raw HTML
-      // carries whatever styling its author wrote (Code tab).
+      // Nothing beyond the background and padding above — a spacer is otherwise
+      // its height (Content tab), and raw HTML carries whatever styling its
+      // author wrote (Code tab).
       return (
         <FieldGroup>
           <p className="text-sm text-slate-500">
             {element.type === 'spacer'
-              ? 'A spacer has no styling beyond its height — see the Content tab.'
-              : 'This block is raw HTML. Edit it on the Code tab.'}
+              ? 'A spacer is a coloured band or empty space — its height is on the Content tab.'
+              : 'This block is raw HTML. Everything else about it is on the Code tab.'}
           </p>
         </FieldGroup>
       );
   }
 };
+
+/**
+ * The Styles tab: the four controls every block has — its fill, the space
+ * inside it, its border and how far its corners are rounded — then whatever
+ * this type adds.
+ *
+ * All four are rendered here rather than in each arm, so they sit in the same
+ * place on every type, and so a type added later gets them without anyone
+ * remembering to. They run in the order the box is built: the fill, how far it
+ * stands off the content, what encloses it, and how that corner is cut.
+ */
+export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => (
+  <>
+    <BackgroundGroup element={element} />
+    <PaddingGroup element={element} />
+    <BorderGroup element={element} />
+    <RoundedCornersGroup element={element} />
+    <TypeStyles element={element} />
+  </>
+);

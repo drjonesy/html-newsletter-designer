@@ -130,6 +130,23 @@ export const RICH_TEXT_FONTS: { label: string; stack: string }[] = [
   { label: 'Courier New', stack: '"Courier New", Courier, monospace' },
 ];
 
+/**
+ * Passed to `applyHighlight` to take the highlight *off* the selection.
+ *
+ * The same word `ColorField`'s `NO_COLOR` uses, so "no fill" is one vocabulary
+ * across the app.
+ */
+export const NO_HIGHLIGHT = 'transparent';
+
+/**
+ * Passed to `applyColor` to drop the selection back to the block's own colour.
+ *
+ * Not a colour of its own: the block's colour comes from the theme cascade and
+ * can change later, so "default" has to mean *no* inline colour rather than a
+ * copy of whatever the block resolves to today.
+ */
+export const INHERIT_COLOR = 'inherit';
+
 /** Highlight swatches. Light, because text stays dark on top of them. */
 export const RICH_TEXT_HIGHLIGHTS = [
   '#fef08a',
@@ -215,6 +232,24 @@ function normalizeColor(value: string): string {
 const COLOR_PROPS = new Set(['color', 'background-color']);
 
 /**
+ * Whether a colour paints nothing at all.
+ *
+ * Such a declaration is dropped rather than kept: `background-color:transparent`
+ * is what a browser writes when asked to "clear" a highlight, it means the same
+ * as having no declaration in every client that gets it right, and Outlook's
+ * Word engine is one of the ones that doesn't.
+ */
+function isTransparent(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (text === 'transparent') return true;
+  // Four components, the last of them zero — an `rgb()` whose *blue* is 0 is
+  // opaque black-ish, not transparent, so the alpha has to be counted out.
+  return /^rgba?\(\s*[\d.%]+[\s,]+[\d.%]+[\s,]+[\d.%]+\s*[,/]\s*(0|0?\.0+|0%)\s*\)$/.test(
+    text
+  );
+}
+
+/**
  * Makes a font stack safe to sit inside a double-quoted `style` attribute.
  *
  * `font-family:"Helvetica Neue", …` written into `style="…"` **ends the
@@ -258,6 +293,9 @@ function filterStyle(el: HTMLElement): void {
         !!pair &&
         ALLOWED_STYLE_PROPS.has(pair[0]) &&
         !!pair[1] &&
+        // A colour that paints nothing is the same as no declaration, and
+        // safer stated that way — see `isTransparent`.
+        !(COLOR_PROPS.has(pair[0]) && isTransparent(pair[1])) &&
         // A URL or a legacy IE expression has no business in email text.
         !/url\(|expression\(|javascript:/i.test(pair[1])
     );
@@ -546,32 +584,85 @@ function selectContents(node: HTMLElement): void {
 }
 
 /**
+ * A colour no newsletter would ever ask for, applied when a colour is being
+ * *removed* rather than set.
+ *
+ * Same trick as `applyFontSize`'s size 7, and for the same reason: removing a
+ * colour from a selection is not "delete the style attribute", because the
+ * colour usually sits on a span that reaches further than the selection does.
+ * `execCommand` is the one thing that splits that span correctly — it pushes an
+ * ancestor's colour down onto the parts either side and applies the new value
+ * to exactly the selected run — so removal is *applying* a value the code can
+ * find again, then deleting the declaration it just wrote.
+ */
+const COLOR_SENTINEL = 'rgb(1, 2, 3)';
+
+/** The CSSOM re-spaces what it serialises, so compare without whitespace. */
+function isSentinel(value: string): boolean {
+  return value.replace(/\s+/g, '') === 'rgb(1,2,3)';
+}
+
+/**
+ * Deletes the sentinel declarations `execCommand` just wrote.
+ *
+ * A span left carrying nothing is not unwrapped here: `sanitizeRichHtml` drops
+ * attribute-less spans on commit, and taking the node out from under the live
+ * selection would lose the caret mid-edit.
+ */
+function clearSentinel(root: HTMLElement, prop: 'color' | 'backgroundColor'): void {
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[style]'))) {
+    if (!isSentinel(el.style[prop])) continue;
+    el.style[prop] = '';
+    if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
+  }
+}
+
+/**
  * Applies a colour to the current selection as an inline `style`, not a
  * `<font color>` tag.
  *
  * `styleWithCSS` is switched on for just this command: `foreColor` is the one
  * place where the CSS output is the one we want, since `sanitizeRichHtml` would
  * only have to convert the legacy tag back again.
+ *
+ * `INHERIT_COLOR` strips the selection's colour instead, leaving it to inherit
+ * the block's — which is what makes the swatch menu's "Default" honest.
  */
-export function applyColor(color: string): void {
+export function applyColor(root: HTMLElement, color: string): void {
+  const clearing = color === INHERIT_COLOR;
+
   document.execCommand('styleWithCSS', false, 'true');
-  document.execCommand('foreColor', false, color);
+  document.execCommand('foreColor', false, clearing ? COLOR_SENTINEL : color);
   document.execCommand('styleWithCSS', false, 'false');
+
+  if (clearing) clearSentinel(root, 'color');
 }
 
 /**
- * Applies a background colour behind the selected text.
+ * Applies a background colour behind the selected text, or removes it for
+ * `NO_HIGHLIGHT`.
  *
  * `hiliteColor` is the correct command and the one Gecko implements;
  * WebKit/Blink only honour `backColor` for a selection. Running both is
  * harmless — whichever the engine doesn't support is a no-op — and is the only
  * way to get one call that works everywhere.
+ *
+ * Clearing goes through the sentinel rather than asking for `transparent`
+ * directly, because a browser handed `transparent` writes
+ * `background-color:transparent` onto the span instead of removing anything —
+ * which reads as cleared on the canvas but ships a declaration Outlook may
+ * render as an opaque box.
  */
-export function applyHighlight(color: string): void {
+export function applyHighlight(root: HTMLElement, color: string): void {
+  const clearing = !color || color === NO_HIGHLIGHT;
+  const value = clearing ? COLOR_SENTINEL : color;
+
   document.execCommand('styleWithCSS', false, 'true');
-  document.execCommand('hiliteColor', false, color);
-  document.execCommand('backColor', false, color);
+  document.execCommand('hiliteColor', false, value);
+  document.execCommand('backColor', false, value);
   document.execCommand('styleWithCSS', false, 'false');
+
+  if (clearing) clearSentinel(root, 'backgroundColor');
 }
 
 /**

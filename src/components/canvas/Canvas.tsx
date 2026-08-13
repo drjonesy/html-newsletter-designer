@@ -9,6 +9,9 @@ import {
 } from '../../types';
 import { renderElementToHtml } from '../../utils/htmlGenerator';
 import {
+  blockBorder,
+  blockPadding,
+  blockRadius,
   canNest,
   canSitAtTopLevel,
   evenWidths,
@@ -64,12 +67,38 @@ function sectionPreviewStyle(el: SectionElement): React.CSSProperties {
     marginBottom: el.marginBottom,
     backgroundColor:
       el.bgColor && el.bgColor !== 'transparent' ? el.bgColor : undefined,
+    // Absent has to stay absent rather than becoming 'left': it means inherit,
+    // and the generator puts it on a `<td>` the children cascade out of.
+    textAlign: el.textAlign,
   };
 }
 
-/** A row draws nothing of its own — only the space around it. */
+/**
+ * A row draws nothing of its own — only the space around it, a fill if it has
+ * been given one, and padding inside that fill. In the generator the fill lands
+ * on the row's `<table>`, or on the `<td>` wrapped around it once there's
+ * padding for that cell to carry.
+ */
 function rowPreviewStyle(el: RowElement): React.CSSProperties {
-  return { marginTop: el.marginTop, marginBottom: el.marginBottom };
+  const p = blockPadding(el);
+  const b = blockBorder(el);
+  return {
+    borderStyle: b.style,
+    borderColor: b.color,
+    borderTopWidth: b.top,
+    borderRightWidth: b.right,
+    borderBottomWidth: b.bottom,
+    borderLeftWidth: b.left,
+    marginTop: el.marginTop,
+    marginBottom: el.marginBottom,
+    backgroundColor: el.backgroundColor || undefined,
+    paddingTop: p.top,
+    paddingRight: p.right,
+    paddingBottom: p.bottom,
+    paddingLeft: p.left,
+    // Wherever the fill lands, the rounding lands with it.
+    borderRadius: blockRadius(el),
+  };
 }
 
 /**
@@ -102,6 +131,7 @@ function columnPreviewStyle(
     paddingLeft: el.paddingLeft,
     backgroundColor:
       el.bgColor && el.bgColor !== 'transparent' ? el.bgColor : undefined,
+    textAlign: el.textAlign,
   };
 }
 

@@ -5,10 +5,18 @@ import {
   NewsletterTemplate,
   QuoteElement,
   RowElement,
+  TextAlign,
 } from '../types';
 import { resolveTextStyle } from './typography';
 import { cssFontFamily } from './richText';
-import { evenWidths, isContainerElement } from './elementHelpers';
+import {
+  BlockPadding,
+  blockBorder,
+  blockPadding,
+  blockRadius,
+  evenWidths,
+  isContainerElement,
+} from './elementHelpers';
 
 /**
  * Wraps text in <strong>/<em> on top of the inline font-weight/font-style styles.
@@ -20,6 +28,124 @@ function wrapEmphasis(html: string, bold: boolean, italic: boolean): string {
   if (bold) out = `<strong>${out}</strong>`;
   if (italic) out = `<em>${out}</em>`;
   return out;
+}
+
+/**
+ * The `text-align` declaration for a block, or `''` when it has none.
+ *
+ * Absent means *inherit*, not left — the block follows whatever container it
+ * sits in — so an unaligned block emits nothing and a newsletter that has never
+ * used alignment exports exactly the bytes it did before the field existed.
+ *
+ * The leading space is part of it: every caller appends this to a style
+ * attribute that already ends in `;`, and an empty string has to leave no gap.
+ */
+function alignStyle(align: TextAlign | undefined): string {
+  return align ? ` text-align:${align};` : '';
+}
+
+/**
+ * The `background-color` declaration for a block, or `''` when it has none.
+ *
+ * Same bargain as `alignStyle`, and the same leading space: absent means no
+ * fill, so a block that has never been given one emits the bytes it always did.
+ *
+ * `section`, `column` and `quote` don't come through here — each paints the box
+ * it already draws from its own `bgColor`, which the cases below build into the
+ * `<td>` or `<blockquote>` style directly. See `blockBackground`.
+ */
+function bgStyle(element: EmailElement): string {
+  const bg = element.backgroundColor;
+  return bg && bg !== 'transparent' ? ` background-color:${bg};` : '';
+}
+
+/**
+ * The `bgcolor` attribute for a block, or `''` when it has none.
+ *
+ * Stated alongside the CSS wherever the fill lands on a `<td>` or a `<table>`:
+ * Outlook's Word engine reads the attribute, and it is the one place a
+ * background is reliable there.
+ */
+function bgAttr(element: EmailElement): string {
+  const bg = element.backgroundColor;
+  return bg && bg !== 'transparent' ? ` bgcolor="${bg}"` : '';
+}
+
+/**
+ * A `padding` declaration, in the shortest form that says the same thing.
+ *
+ * Collapsing matters for more than tidiness: a quote that has never been
+ * repadded resolves to 16/20/16/20, and only the two-value form emits the
+ * `padding:16px 20px;` the generator has always written for it.
+ *
+ * `section` and `column` deliberately don't come through here — both have
+ * always written the four-value form on their `<td>`, and collapsing it now
+ * would rewrite the export of every newsletter that uses one.
+ */
+function paddingShorthand(p: BlockPadding): string {
+  if (p.top === p.right && p.right === p.bottom && p.bottom === p.left) {
+    return `padding:${p.top}px;`;
+  }
+  if (p.top === p.bottom && p.left === p.right) {
+    return `padding:${p.top}px ${p.left}px;`;
+  }
+  return `padding:${p.top}px ${p.right}px ${p.bottom}px ${p.left}px;`;
+}
+
+/**
+ * The `padding` declaration for a block, or `''` when it has none.
+ *
+ * Same bargain as `alignStyle` and `bgStyle`, and the same leading space:
+ * absent means no padding, so a block that has never been padded emits the
+ * bytes it always did.
+ *
+ * The four types that pad themselves — `section` and `column` on their `<td>`,
+ * `image` with its long-standing top/bottom pair, `quote` with its legacy
+ * default — build their own declaration from `blockPadding` instead, since each
+ * has bytes to preserve that a plain shorthand would change.
+ */
+function paddingStyle(element: EmailElement): string {
+  const p = blockPadding(element);
+  if (!p.top && !p.right && !p.bottom && !p.left) return '';
+  return ` ${paddingShorthand(p)}`;
+}
+
+/**
+ * The `border-*` declarations for a block, or `''` when it draws none.
+ *
+ * Same bargain as `alignStyle`, `bgStyle` and `paddingStyle`, and the same
+ * leading space: no side with a width means no border, so a block that has
+ * never been given one emits the bytes it always did. Only non-zero sides are
+ * written — see `sideBorders` for why.
+ *
+ * It lands on the same box as the block's fill and rounding: the `<td>` for
+ * image, divider, spacer and custom-html, the element's own tag for heading,
+ * paragraph, list and quote, the strip's table for a row, and the chip's `<a>`
+ * for a button.
+ */
+function borderStyle(element: EmailElement): string {
+  const b = blockBorder(element);
+  const decls = sideBorders(b, b.style, b.color);
+  return decls ? ` ${decls}` : '';
+}
+
+/**
+ * The `border-radius` declaration for a block, or `''` when it has none.
+ *
+ * Same bargain as `alignStyle`, `bgStyle` and `paddingStyle`, and the same
+ * leading space: absent and 0 both mean square, so a block that has never been
+ * rounded emits the bytes it always did.
+ *
+ * It goes on whatever the block's own box is — the `<td>` for image, divider,
+ * spacer and custom-html, the element's own tag for heading, paragraph, list
+ * and quote, the strip's table for a row. `button` doesn't come through here:
+ * its radius is the chip's, written unconditionally on the `<a>` and mirrored
+ * as the VML `arcsize` Outlook needs. Nothing clips children to a radius, so
+ * this rounds the block's fill and border rather than what sits inside it.
+ */
+function radiusStyle(element: EmailElement): string {
+  const r = blockRadius(element);
+  return r > 0 ? ` border-radius:${r}px;` : '';
 }
 
 export interface RenderOptions {
@@ -163,18 +289,7 @@ function columnCell(
   const bg =
     column?.bgColor && column.bgColor !== 'transparent' ? column.bgColor : '';
 
-  const borders = column
-    ? sideBorders(
-        {
-          top: column.borderTopWidth,
-          right: column.borderRightWidth,
-          bottom: column.borderBottomWidth,
-          left: column.borderLeftWidth,
-        },
-        column.borderStyle,
-        column.borderColor
-      )
-    : '';
+  const borders = column ? borderStyle(column).trim() : '';
 
   const style = [
     `width:${pct(width)}%;`,
@@ -184,9 +299,8 @@ function columnCell(
       : '',
     borders,
     bg ? `background-color:${bg};` : '',
-    column && column.borderRadius > 0
-      ? `border-radius:${column.borderRadius}px;`
-      : '',
+    column ? radiusStyle(column).trim() : '',
+    alignStyle(column?.textAlign).trim(),
   ]
     .filter(Boolean)
     .join(' ');
@@ -217,9 +331,14 @@ function columnGapCell(gap: number): string {
   return `    <td class="${COLUMN_GAP_CLASS}" width="${gap}" style="width:${gap}px; font-size:0; line-height:0;"><div style="height:${gap}px; line-height:${gap}px; font-size:1px;">&nbsp;</div></td>`;
 }
 
-/** True for a column that draws no box of its own. */
+/**
+ * True for a column that draws no box of its own — and so has nothing a `<td>`
+ * has to carry for it. Alignment counts: it lives on the cell, so a column that
+ * aligns its contents is no longer bare however empty its border and padding.
+ */
 function isBareColumn(column: ColumnElement): boolean {
   return (
+    !column.textAlign &&
     column.borderTopWidth === 0 &&
     column.borderRightWidth === 0 &&
     column.borderBottomWidth === 0 &&
@@ -228,7 +347,8 @@ function isBareColumn(column: ColumnElement): boolean {
     column.paddingRight === 0 &&
     column.paddingBottom === 0 &&
     column.paddingLeft === 0 &&
-    (!column.bgColor || column.bgColor === 'transparent')
+    (!column.bgColor || column.bgColor === 'transparent') &&
+    !radiusStyle(column)
   );
 }
 
@@ -253,13 +373,22 @@ function renderRow(
 
     Only for one column: two cells side by side *are* the layout.
   */
+  const padding = paddingStyle(element);
+
   const only = children.length === 1 ? children[0] : null;
   if (
     only &&
     only.type === 'column' &&
     isBareColumn(only) &&
     element.marginTop === 0 &&
-    element.marginBottom === 0
+    element.marginBottom === 0 &&
+    // A fill is drawn on the row's own table, and padding on a cell wrapped
+    // around it, so a row with either is no longer emitting nothing — the same
+    // reason `textAlign` costs a section its early return.
+    !bgStyle(element) &&
+    !radiusStyle(element) &&
+    !borderStyle(element) &&
+    !padding
   ) {
     return (only.childElements || [])
       .map((child) => renderElementToHtml(child, settings, opts))
@@ -279,9 +408,42 @@ function renderRow(
   // row whose author wants it side-by-side everywhere.
   const stack = element.stackOnMobile !== false ? ` class="${ROW_STACK_CLASS}"` : '';
 
-  return `<table${stack} width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
+  /*
+    A padded row is the one case that needs a second table. Padding on the
+    strip's own `<table>` is not reliable — a `<td>` is the box Outlook's Word
+    engine pads — and it can't go on the column cells either, since that would
+    inset the gaps between them as well as the row's outer edges.
+
+    When the wrapper is there it takes the margins and the fill too, so the
+    colour covers the padding and the space around the row stays outside it.
+    An unpadded row still emits the single table it always did.
+  */
+  const wrapped = !!padding;
+  const margins = `margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;`;
+
+  const strip = `<table${stack} width="100%" border="0" cellspacing="0" cellpadding="0"${
+    wrapped ? '' : bgAttr(element)
+  }${
+    wrapped
+      ? ''
+      : ` style="${margins}${bgStyle(element)}${borderStyle(
+          element
+        )}${radiusStyle(element)}"`
+  }>
   <tr>
 ${cells.join('\n')}
+  </tr>
+</table>`;
+
+  if (!wrapped) return strip;
+
+  return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="${margins}">
+  <tr>
+    <td${bgAttr(element)} style="${padding.trim()}${bgStyle(element)}${borderStyle(
+    element
+  )}${radiusStyle(element)}">
+${strip}
+    </td>
   </tr>
 </table>`;
 }
@@ -312,30 +474,6 @@ function sideBorders(
     .join(' ');
 }
 
-/**
- * A quote's border widths, honouring the legacy default.
- *
- * Every side absent means the block predates configurable sides, and had a 4px
- * left rule baked into the generator. Reading that as "no border" would quietly
- * strip the accent bar off every quote in every saved newsletter.
- */
-function quoteBorderWidths(element: QuoteElement): SideWidths {
-  const unset =
-    element.borderTopWidth === undefined &&
-    element.borderRightWidth === undefined &&
-    element.borderBottomWidth === undefined &&
-    element.borderLeftWidth === undefined;
-
-  if (unset) return { top: 0, right: 0, bottom: 0, left: 4 };
-
-  return {
-    top: element.borderTopWidth ?? 0,
-    right: element.borderRightWidth ?? 0,
-    bottom: element.borderBottomWidth ?? 0,
-    left: element.borderLeftWidth ?? 0,
-  };
-}
-
 export function renderElementToHtml(
   element: EmailElement,
   settings: EmailSettings,
@@ -360,13 +498,26 @@ function renderElementBody(
 
   switch (element.type) {
     case 'image': {
-      const img = `<img src="${element.src}" alt="${element.alt}" width="${element.width}" ${element.height ? `height="${element.height}"` : ''} style="max-width:100%; height:auto; display:inline-block; border:0;" />`;
+      // On the `<img>` rather than its cell: the image is the box here, and a
+      // radius on the `<td>` would round a fill the picture then covers.
+      const img = `<img src="${element.src}" alt="${element.alt}" width="${element.width}" ${element.height ? `height="${element.height}"` : ''} style="max-width:100%; height:auto; display:inline-block; border:0;${borderStyle(element)}${radiusStyle(element)}" />`;
       const wrappedImg = element.href
         ? `<a href="${element.href}" target="_blank" style="text-decoration:none;">${img}</a>`
         : img;
+      /*
+        An image has padded its cell top and bottom since long before the sides
+        were general, so it keeps emitting those two declarations until one of
+        the new sides is actually used — which is what keeps every existing
+        image exporting the bytes it always did.
+      */
+      const p = blockPadding(element);
+      const padding =
+        p.left || p.right
+          ? paddingShorthand(p)
+          : `padding-top:${p.top}px; padding-bottom:${p.bottom}px;`;
       return `<table width="100%" border="0" cellspacing="0" cellpadding="0">
   <tr>
-    <td align="${element.alignment}" style="padding-top:${element.paddingTop}px; padding-bottom:${element.paddingBottom}px;">
+    <td align="${element.alignment}"${bgAttr(element)} style="${padding}${bgStyle(element)}">
       ${wrappedImg}
     </td>
   </tr>
@@ -384,7 +535,7 @@ function renderElementBody(
         t.fontWeight === 'bold',
         t.fontStyle === 'italic'
       );
-      return `<${Tag} style="font-size:${t.fontSize}px; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; text-transform:${t.transform}; letter-spacing:${t.letterSpacing}; font-family:${fontFamily}; font-weight:${t.fontWeight}; font-style:${t.fontStyle}; line-height:${t.lineHeight};">${text}</${Tag}>`;
+      return `<${Tag} style="font-size:${t.fontSize}px; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; text-transform:${t.transform}; letter-spacing:${t.letterSpacing}; font-family:${fontFamily}; font-weight:${t.fontWeight}; font-style:${t.fontStyle}; line-height:${t.lineHeight};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">${text}</${Tag}>`;
     }
 
     case 'paragraph': {
@@ -400,7 +551,7 @@ function renderElementBody(
       const content = opts?.editable
         ? editableField(element.content, 'content', opts, 'rich')
         : wrapEmphasis(element.content, weight === 'bold', style === 'italic');
-      return `<div style="font-size:${t.fontSize}px; line-height:${t.lineHeight}; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily}; font-weight:${weight}; font-style:${style};">
+      return `<div style="font-size:${t.fontSize}px; line-height:${t.lineHeight}; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily}; font-weight:${weight}; font-style:${style};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
   ${content}
 </div>`;
     }
@@ -427,27 +578,107 @@ function renderElementBody(
         .join('\n');
 
       /*
+        A centred or right-aligned list also moves its markers into the text
+        flow. `list-style-position` is `outside` by default, which pins the
+        marker to the padding edge — align the copy away from that edge and the
+        bullets are left behind on their own. Left alignment keeps `outside`,
+        which is both the nicer hanging indent and the byte the generator has
+        always emitted.
+      */
+      const marker =
+        element.textAlign === 'center' || element.textAlign === 'right'
+          ? ' list-style-position:inside;'
+          : '';
+
+      /*
         `padding-left` rather than `margin-left`: Outlook's Word engine indents
         lists with padding and ignores the margin, so stating both would double
         the indent there.
+
+        Which is also why the list is the one block whose padding can't simply
+        be appended — it already writes the property. The indent is the marker's
+        own hanging distance, so the two *add*: pad the list by 12 and it keeps
+        whatever indent its markers were given, 12px further in. A list that has
+        never been padded emits the declaration it always did.
       */
-      return `<${Tag} style="margin:${element.marginTop}px 0 ${element.marginBottom}px 0; padding:0 0 0 ${element.indent}px; color:${t.color}; font-size:${t.fontSize}px; line-height:${t.lineHeight}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; list-style-type:${element.marker};">
+      const p = blockPadding(element);
+      const padding =
+        p.top || p.right || p.bottom || p.left
+          ? `padding:${p.top}px ${p.right}px ${p.bottom}px ${
+              p.left + element.indent
+            }px;`
+          : `padding:0 0 0 ${element.indent}px;`;
+
+      return `<${Tag} style="margin:${element.marginTop}px 0 ${element.marginBottom}px 0; ${padding} color:${t.color}; font-size:${t.fontSize}px; line-height:${t.lineHeight}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; list-style-type:${element.marker};${alignStyle(element.textAlign)}${marker}${bgStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
 ${rows}
 </${Tag}>`;
     }
 
     case 'button': {
+      /*
+        Full width fills whatever cell the button sits in — the email body, or
+        one column of a row — so there is no px width to state anywhere.
+
+        The `<a>` gets `display:block`, which fills the cell's content box; its
+        padding is taken out of that width rather than added to it, so the
+        button can't overflow its column. Outlook is the awkward half: VML has
+        no percentage `width`, so the roundrect uses `mso-width-percent:1000`
+        (tenths of a percent — 1000 is 100%), the Word engine's own way of
+        saying the same thing. Alignment is dropped on both sides, because a
+        box that fills its cell has nowhere to sit but where it is; the label
+        centres instead.
+      */
+      const full = !!element.fullWidth;
+      const vmlWidth = full
+        ? 'mso-width-percent:1000;'
+        : `width:${element.paddingHorizontal * 2 + 100}px;`;
+      const anchorBox = full
+        ? 'display:block;'
+        : 'display:inline-block;';
+
+      /*
+        The block's padding goes on the cell, not on the `<a>` — the anchor's
+        padding is the chip's own (`paddingVertical` / `paddingHorizontal`), and
+        adding to it would make the button bigger rather than move it. On a
+        full-width button the cell padding is also what keeps it off the edges
+        of the column, since the anchor fills whatever box it is given.
+      */
+      const cellStyle = `${bgStyle(element)}${paddingStyle(element)}`.trim();
+
+      /*
+        The border draws around the chip, like the radius — the cell behind it
+        is the block's background, and a rule there would trace the whole row
+        rather than the button.
+
+        Outlook is the awkward half again: VML strokes a shape with one width
+        and one colour, so it can only follow a border whose four sides match.
+        An uneven one is left to the clients that can draw it, rather than
+        guessing which side Outlook should show. `stroke="f"` — no border at
+        all — is what this block has always emitted.
+      */
+      const b = blockBorder(element);
+      const evenBorder =
+        b.top === b.right && b.right === b.bottom && b.bottom === b.left
+          ? b.top
+          : 0;
+      const vmlStroke =
+        evenBorder > 0
+          ? `strokecolor="${b.color}" strokeweight="${evenBorder}px"`
+          : 'stroke="f"';
+
       return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
   <tr>
-    <td align="${element.alignment}">
+    <td align="${full ? 'center' : element.alignment}"${bgAttr(element)}${
+      cellStyle ? ` style="${cellStyle}"` : ''
+    }>
       <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${element.url}" style="height:${element.paddingVertical * 2 + element.fontSize}px;v-text-anchor:middle;width:${element.paddingHorizontal * 2 + 100}px;" arcsize="${element.borderRadius * 2}%" stroke="f" fillcolor="${element.bgColor}">
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${element.url}" style="height:${element.paddingVertical * 2 + element.fontSize}px;v-text-anchor:middle;${vmlWidth}" arcsize="${element.borderRadius * 2}%" ${vmlStroke} fillcolor="${element.bgColor}">
         <w:anchorlock/>
         <center style="color:${element.textColor};font-family:${fontFamily};font-size:${element.fontSize}px;font-weight:${element.fontWeight};">${element.text}</center>
       </v:roundrect>
       <![endif]-->
       <!--[if !mso]><!-->
-      <a href="${element.url}" target="_blank" style="background-color:${element.bgColor}; color:${element.textColor}; font-size:${element.fontSize}px; font-weight:${element.fontWeight}; text-decoration:none; padding:${element.paddingVertical}px ${element.paddingHorizontal}px; border-radius:${element.borderRadius}px; display:inline-block; font-family:${fontFamily}; text-align:center;">
+      <a href="${element.url}" target="_blank" style="background-color:${element.bgColor}; color:${element.textColor}; font-size:${element.fontSize}px; font-weight:${element.fontWeight}; text-decoration:none; padding:${element.paddingVertical}px ${element.paddingHorizontal}px; border-radius:${element.borderRadius}px;${borderStyle(element)} ${anchorBox} font-family:${fontFamily}; text-align:center;">
         ${editableField(element.text, 'text', opts)}
       </a>
       <!--<![endif]-->
@@ -473,6 +704,9 @@ ${rows}
         element.paddingLeft > 0;
       const hasSpacing = element.marginTop > 0 || element.marginBottom > 0;
       const hasFill = !!element.bgColor && element.bgColor !== 'transparent';
+      // Alignment is the one non-box thing a section can carry, and it lives on
+      // the `<td>` — so a section that only aligns still needs its table.
+      const hasAlign = !!element.textAlign;
 
       /*
         A section that draws nothing emits nothing of its own — just its
@@ -485,22 +719,13 @@ ${rows}
         `generateEmailHtml` joins top-level blocks, so the wrap is byte-neutral
         rather than merely render-neutral.
       */
-      if (!hasBorder && !hasPadding && !hasSpacing && !hasFill) {
+      if (!hasBorder && !hasPadding && !hasSpacing && !hasFill && !hasAlign) {
         return children.join('\n\n');
       }
 
       const childrenHtml = children.join('\n');
 
-      const borders = sideBorders(
-        {
-          top: element.borderTopWidth,
-          right: element.borderRightWidth,
-          bottom: element.borderBottomWidth,
-          left: element.borderLeftWidth,
-        },
-        element.borderStyle,
-        element.borderColor
-      );
+      const borders = borderStyle(element).trim();
 
       const hasBg = hasFill;
 
@@ -508,7 +733,8 @@ ${rows}
         `padding:${element.paddingTop}px ${element.paddingRight}px ${element.paddingBottom}px ${element.paddingLeft}px;`,
         borders,
         hasBg ? `background-color:${element.bgColor};` : '',
-        element.borderRadius > 0 ? `border-radius:${element.borderRadius}px;` : '',
+        radiusStyle(element).trim(),
+        alignStyle(element.textAlign).trim(),
       ]
         .filter(Boolean)
         .join(' ');
@@ -545,9 +771,31 @@ ${body}
     }
 
     case 'divider': {
+      const rule = `border-top:${element.height}px ${element.style} ${element.color};`;
+      const padding = paddingStyle(element);
+
+      /*
+        Unpadded and unbordered, the rule is the cell's own top border — the
+        bytes this block has always emitted. Otherwise it moves to a `<div>`
+        inside the cell, for two reasons: a border sits *outside* padding, so
+        leaving it on the `<td>` would put the line above the space rather than
+        inside it and left/right padding wouldn't shorten it — the one thing a
+        padded divider is for — and a block border of its own would be a second
+        `border-top` on the same cell, where only one of them can win.
+      */
+      const box = borderStyle(element);
+      const body =
+        padding || box
+          ? `<div style="${rule} font-size:1px; line-height:1px;">&nbsp;</div>`
+          : '';
+
       return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
   <tr>
-    <td style="border-top:${element.height}px ${element.style} ${element.color}; font-size:1px; line-height:1px;">&nbsp;</td>
+    <td${bgAttr(element)} style="${`${
+      body ? padding.trim() : `${rule} font-size:1px; line-height:1px;`
+    }${bgStyle(element)}${box}${radiusStyle(element)}`.trim()}">${
+      body || '&nbsp;'
+    }</td>
   </tr>
 </table>`;
     }
@@ -558,11 +806,15 @@ ${body}
         the attribute, most clients read the style, and `line-height` plus a 1px
         `font-size` is what stops the `&nbsp;` — which is there because an empty
         cell collapses — from forcing the row taller than asked.
+
+        Padding on a spacer adds to that height rather than fitting inside it —
+        a cell's stated height is its content box. Left and right padding is the
+        useful half: it insets a coloured band without changing how tall it is.
       */
       const h = Math.max(1, element.height);
       return `<table width="100%" border="0" cellspacing="0" cellpadding="0">
   <tr>
-    <td height="${h}" style="height:${h}px; line-height:${h}px; font-size:1px; mso-line-height-rule:exactly;">&nbsp;</td>
+    <td height="${h}"${bgAttr(element)} style="height:${h}px; line-height:${h}px; font-size:1px; mso-line-height-rule:exactly;${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">&nbsp;</td>
   </tr>
 </table>`;
     }
@@ -576,11 +828,9 @@ ${body}
         style === 'italic'
       );
 
-      const borders = sideBorders(
-        quoteBorderWidths(element),
-        element.borderStyle ?? 'solid',
-        element.borderColor
-      );
+      // Every side absent is the 4px left rule this block hard-coded before
+      // the sides were configurable — `blockBorder` is where that lives.
+      const borders = borderStyle(element).trim();
 
       /*
         Assembled from parts rather than one template literal so the border
@@ -591,7 +841,10 @@ ${body}
       const blockquoteStyle = [
         `margin-top:${element.marginTop}px;`,
         `margin-bottom:${element.marginBottom}px;`,
-        `padding:16px 20px;`,
+        // All four sides absent means the 16/20 this block hard-coded before
+        // padding was configurable — `blockPadding` is where that lives, and
+        // the two-value shorthand is the byte it has always emitted.
+        paddingShorthand(blockPadding(element)),
         `background-color:${element.bgColor};`,
         borders,
         `color:${element.textColor};`,
@@ -599,7 +852,11 @@ ${body}
         `font-weight:${weight};`,
         `font-style:${style};`,
         `font-family:${fontFamily};`,
-        `border-radius:4px;`,
+        // Absent is the 4px this block hard-coded before the control existed —
+        // `blockRadius` is where that lives. A deliberate 0 drops out here,
+        // which is the one way to square a quote off.
+        radiusStyle(element).trim(),
+        alignStyle(element.textAlign).trim(),
       ]
         .filter(Boolean)
         .join(' ');
@@ -611,7 +868,28 @@ ${body}
     }
 
     case 'custom-html': {
-      return element.html;
+      /*
+        The one block whose fill and padding need a wrapper: there is no markup
+        of ours to put them on, and reaching into the author's HTML to style its
+        first tag would be editing what they wrote. A `<td>` rather than a
+        `<div>` for the usual reason — it's the box Outlook's Word engine fills
+        and pads reliably.
+
+        Neither set means no wrapper at all, so a Custom HTML block still
+        exports exactly what its author pasted.
+      */
+      const boxStyle = `${bgStyle(element)}${paddingStyle(element)}${borderStyle(
+        element
+      )}${radiusStyle(element)}`.trim();
+      if (!boxStyle) return element.html;
+
+      return `<table width="100%" border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td${bgAttr(element)} style="${boxStyle}">
+${element.html}
+    </td>
+  </tr>
+</table>`;
     }
 
     default:

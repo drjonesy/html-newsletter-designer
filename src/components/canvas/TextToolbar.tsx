@@ -20,6 +20,8 @@ import {
 } from '../../state/EditingSession';
 import { useDesigner } from '../../state/DesignerContext';
 import {
+  INHERIT_COLOR,
+  NO_HIGHLIGHT,
   RICH_TEXT_COLORS,
   RICH_TEXT_FONTS,
   RICH_TEXT_FONT_SIZES,
@@ -173,6 +175,19 @@ const ToolButton: React.FC<ToolButtonProps> = ({
   </button>
 );
 
+/**
+ * The empty swatch: a white box with a red slash through it, the shorthand
+ * every colour picker uses for "none".
+ *
+ * Drawn rather than iconised so it reads as one of the swatches it sits above —
+ * same size, same border, just nothing in it.
+ */
+const NoColorSwatch: React.FC = () => (
+  <span className="relative block h-5 w-5 shrink-0 overflow-hidden rounded border border-slate-300 bg-white">
+    <span className="absolute left-1/2 top-1/2 h-px w-7 -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-red-500" />
+  </span>
+);
+
 /** A swatch grid that drops from a toolbar button. */
 const SwatchMenu: React.FC<{
   title: string;
@@ -181,7 +196,15 @@ const SwatchMenu: React.FC<{
   onPick: (color: string) => void;
   /** Shown under the grid, opening the OS picker for anything not offered. */
   fallback: string;
-}> = ({ title, icon, swatches, onPick, fallback }) => {
+  /**
+   * The "no colour" row above the grid, and what picking it applies.
+   *
+   * Every swatch here *adds* a colour, so without this there is no way back:
+   * a highlight can be changed to another highlight but never taken off, and
+   * text nudged to grey can never rejoin the block it lives in.
+   */
+  clear?: { label: string; value: string };
+}> = ({ title, icon, swatches, onPick, fallback, clear }) => {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
 
@@ -206,6 +229,21 @@ const SwatchMenu: React.FC<{
         className="w-44 p-2"
       >
         <div>
+          {clear && (
+            <button
+              type="button"
+              title={clear.label}
+              {...keepSelection}
+              onClick={() => {
+                onPick(clear.value);
+                setOpen(false);
+              }}
+              className="mb-2 flex w-full items-center gap-2 rounded border-b border-slate-100 px-0.5 pb-2 text-left text-xs text-slate-700 hover:text-slate-900"
+            >
+              <NoColorSwatch />
+              {clear.label}
+            </button>
+          )}
           <div className="grid grid-cols-6 gap-1">
             {swatches.map((color) => (
               <button
@@ -429,6 +467,7 @@ export const TextToolbar: React.FC = () => {
         icon={<Baseline className="h-4 w-4" />}
         swatches={RICH_TEXT_COLORS}
         fallback="#111827"
+        clear={{ label: 'Default colour', value: INHERIT_COLOR }}
         onPick={(value) => run({ kind: 'color', value })}
       />
       <SwatchMenu
@@ -436,6 +475,7 @@ export const TextToolbar: React.FC = () => {
         icon={<Highlighter className="h-4 w-4" />}
         swatches={RICH_TEXT_HIGHLIGHTS}
         fallback="#fef08a"
+        clear={{ label: 'No highlight', value: NO_HIGHLIGHT }}
         onPick={(value) => run({ kind: 'highlight', value })}
       />
 

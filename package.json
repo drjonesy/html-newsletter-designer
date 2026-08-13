@@ -1,7 +1,7 @@
 {
   "name": "html-newsletter-designer",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
   "type": "module",
   "packageManager": "pnpm@11.1.2",
   "engines": {
@@ -15,8 +15,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist extension/app",
     "lint": "tsc --noEmit",
-    "build:extension": "vite build --base=./ --outDir=extension/app --emptyOutDir",
-    "package:extension": "pnpm build:extension && node scripts/package-extension.mjs"
+    "ext:version": "node scripts/bump-extension-version.mjs",
+    "ext:build": "vite build --base=./ --outDir=extension/app --emptyOutDir",
+    "ext:package": "pnpm ext:build && node scripts/package-extension.mjs"
   },
   "dependencies": {
     "@lexical/html": "^0.48.0",

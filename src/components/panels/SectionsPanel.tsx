@@ -1,34 +1,34 @@
-import React, { useState } from 'react';
-import {
-  Columns2,
-  Columns3,
-  Copy,
-  Plus,
-  Rows3,
-  Square,
-  Trash2,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
 import { EmailElement } from '../../types';
-import { blockName, isContainerElement } from '../../utils/elementHelpers';
-import { useDesigner } from '../../state/DesignerContext';
+import {
+  blockName,
+  canNest,
+  canSitAtTopLevel,
+  isContainerElement,
+} from '../../utils/elementHelpers';
+import { DropPosition, useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
+import { blockIcon } from './blockIcons';
 import { PanelBody, PanelHeader } from './PanelHeader';
 
-/** Keeps a row's outline icon matching the palette card it came from. */
-const COLUMN_ICONS: Record<number, React.ComponentType<{ className?: string }>> =
-  {
-    1: Square,
-    2: Columns2,
-    3: Columns3,
-  };
+/** Where a dragged row would land, as the outline is currently showing it. */
+interface DropTarget {
+  id: string;
+  position: DropPosition;
+}
+
+const childrenOf = (el: EmailElement): EmailElement[] =>
+  isContainerElement(el) ? el.childElements || [] : [];
 
 /**
- * The email's structure, one row per top-level section.
+ * The email's structure, as a tree: every section, and every block inside it,
+ * however deep — Header ▸ 2 Columns ▸ Column ▸ Heading, Button.
  *
- * Deliberately only the top level. This is the document outline — Header, Body,
- * Footer — not a tree view of every block; the canvas is where you work inside
- * a section. It's also the most reliable way to select a section that's full of
- * children, which is otherwise almost entirely covered by them.
+ * The canvas is still where you *work* inside a section; this is the document
+ * outline, and it earns its place by being the one view that can reach a block
+ * the canvas can't easily hit — a section almost entirely covered by its
+ * children, or a column whose padding is a few pixels wide.
  */
 export const SectionsPanel: React.FC = () => {
   const {
@@ -44,15 +44,262 @@ export const SectionsPanel: React.FC = () => {
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [dropId, setDropId] = useState<{
-    id: string;
-    after: boolean;
-  } | null>(null);
+  const [drop, setDrop] = useState<DropTarget | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const sections = template.elements.filter(isContainerElement);
 
+  /**
+   * Every block's parent, so a drop can be judged before it happens.
+   *
+   * `reorderElement` refuses an illegal move anyway, but a refusal is silent —
+   * the outline has to know *while dragging* whether to draw the line, or a
+   * paragraph would appear to be droppable straight into a row.
+   */
+  const parents = useMemo(() => {
+    const map = new Map<string, EmailElement | null>();
+    const walk = (list: EmailElement[], parent: EmailElement | null) => {
+      for (const el of list) {
+        map.set(el.id, parent);
+        walk(childrenOf(el), el);
+      }
+    };
+    walk(template.elements, null);
+    return map;
+  }, [template.elements]);
+
+  const ancestorsOf = (id: string): EmailElement[] => {
+    const out: EmailElement[] = [];
+    for (let p = parents.get(id); p; p = parents.get(p.id)) out.push(p);
+    return out;
+  };
+
+  /*
+    A block selected on the canvas has to be visible here, or the outline
+    disagrees with the canvas about where you are. Collapsing is an explicit
+    act, so re-opening a branch the user closed is the lesser surprise.
+  */
+  useEffect(() => {
+    if (!selectedElementId) return;
+    const path = ancestorsOf(selectedElementId).map((el) => el.id);
+    setCollapsed((prev) => {
+      if (!path.some((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      path.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, [selectedElementId, parents]);
+
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  const dragged = dragId ? findInTree(template.elements, dragId) : null;
+
+  /**
+   * May `dragged` land there? The same two rules every placement path asks —
+   * only containers sit at the top level, and `canNest` for everything else —
+   * applied to whichever list the drop would put the block in.
+   */
+  const legalDrop = (target: EmailElement, position: DropPosition): boolean => {
+    if (!dragged || dragged.id === target.id) return false;
+    // A container dropped into its own subtree would detach from the tree.
+    if (ancestorsOf(target.id).some((el) => el.id === dragged.id)) return false;
+
+    const parent =
+      position === 'inside' ? target : parents.get(target.id) ?? null;
+    return parent
+      ? canNest(dragged.type, parent.type)
+      : canSitAtTopLevel(dragged.type);
+  };
+
+  /**
+   * Containers reserve a band at each edge for before/after and take the middle
+   * as "inside", the same bargain the canvas strikes. A plain block only ever
+   * splits in half — there is no inside to aim at.
+   */
+  const positionFor = (
+    e: React.DragEvent,
+    el: EmailElement
+  ): DropPosition | null => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offset = (e.clientY - rect.top) / (rect.height || 1);
+    const candidates: DropPosition[] = isContainerElement(el)
+      ? [offset < 0.3 ? 'before' : offset > 0.7 ? 'after' : 'inside']
+      : [offset > 0.5 ? 'after' : 'before'];
+    // When the obvious position is illegal, the other legal one still beats
+    // a dead row: dropping onto a row's heading means "into the row".
+    const order = candidates.concat(
+      (['inside', 'before', 'after'] as DropPosition[]).filter(
+        (p) => !candidates.includes(p)
+      )
+    );
+    return order.find((p) => legalDrop(el, p)) ?? null;
+  };
+
   const rename = (el: EmailElement, name: string) =>
     updateElement({ ...el, label: name });
+
+  /*
+    A plain recursive function rather than a nested component: a component
+    declared inside this one is a new type on every render, which would remount
+    the subtree and take the focus out of the rename input mid-word.
+  */
+  const renderNode = (el: EmailElement, depth: number): React.ReactNode => {
+    const active = selectedElementId === el.id;
+    const kids = childrenOf(el);
+    const container = isContainerElement(el);
+    const open = container && !collapsed.has(el.id);
+    const here = drop?.id === el.id ? drop : null;
+    const Icon = blockIcon(el);
+    const top = depth === 0;
+
+    return (
+      <li key={el.id} className="relative">
+        <div
+          draggable={renamingId !== el.id}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.effectAllowed = 'move';
+            setDragId(el.id);
+          }}
+          onDragEnd={() => {
+            setDragId(null);
+            setDrop(null);
+          }}
+          onDragOver={(e) => {
+            if (!dragged) return;
+            const position = positionFor(e, el);
+            if (!position) return;
+            // Only a legal target claims the event — an illegal row lets it
+            // bubble to its parent, which may well accept the block.
+            e.preventDefault();
+            e.stopPropagation();
+            setDrop((prev) =>
+              prev?.id === el.id && prev.position === position
+                ? prev
+                : { id: el.id, position }
+            );
+          }}
+          onDragLeave={(e) => {
+            // Ignore the leave that fires when the cursor crosses onto a child
+            // of this row — the row is still under the pointer.
+            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+            setDrop((prev) => (prev?.id === el.id ? null : prev));
+          }}
+          onDrop={(e) => {
+            if (!dragId || !here) return;
+            e.preventDefault();
+            e.stopPropagation();
+            reorderElement(dragId, el.id, here.position);
+            setDragId(null);
+            setDrop(null);
+          }}
+          className={`group relative ml-3 flex items-center gap-1 rounded-lg pr-1 ${
+            top ? 'py-1.5' : 'py-1'
+          } ${dragId === el.id ? 'opacity-40' : ''} ${
+            here?.position === 'inside' ? 'ring-2 ring-accent-400' : ''
+          } ${active ? 'bg-accent-50' : 'hover:bg-slate-50'}`}
+        >
+          {here && here.position !== 'inside' && (
+            <span
+              className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-accent-500 ${
+                here.position === 'after' ? '-bottom-px' : '-top-px'
+              }`}
+            />
+          )}
+
+          {/* The horizontal tick joining this row to its branch's rule. */}
+          <span className="pointer-events-none absolute -left-3 top-1/2 h-px w-3 border-t border-dashed border-slate-300" />
+
+          {container && kids.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => toggle(el.id)}
+              className="flex h-5 w-4 shrink-0 items-center justify-center rounded text-slate-400 hover:text-slate-700"
+              aria-label={`${open ? 'Collapse' : 'Expand'} ${blockName(el)}`}
+              aria-expanded={open}
+            >
+              {open ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : (
+            <span className="h-5 w-4 shrink-0" />
+          )}
+
+          <button
+            type="button"
+            onClick={() => select(el.id)}
+            className={`flex shrink-0 items-center justify-center rounded-md border ${
+              top ? 'h-9 w-9' : 'h-7 w-7'
+            } ${
+              active
+                ? 'border-accent-300 bg-white text-accent-600'
+                : 'border-slate-200 bg-white text-slate-500'
+            }`}
+            aria-label={`Select ${blockName(el)}`}
+          >
+            <Icon className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+          </button>
+
+          <InlineRename
+            value={blockName(el)}
+            onChange={(name) => rename(el, name)}
+            editing={renamingId === el.id}
+            onEditingChange={(editing) =>
+              setRenamingId(editing ? el.id : null)
+            }
+            className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-left ${
+              top ? 'text-base' : 'text-sm'
+            } ${active ? 'font-semibold text-accent-800' : 'text-slate-800'}`}
+            inputClassName={`min-w-0 flex-1 rounded border border-accent-500 px-1 py-1 text-slate-900 outline-none ${
+              top ? 'text-base' : 'text-sm'
+            }`}
+          />
+
+          <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              title={`Duplicate ${blockName(el)}`}
+              onClick={() => duplicateElement(el.id)}
+              className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-slate-800"
+            >
+              <Copy className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+            </button>
+            <button
+              type="button"
+              title={`Delete ${blockName(el)}`}
+              onClick={() => deleteElement(el.id)}
+              className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-red-600"
+            >
+              <Trash2 className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+            </button>
+          </div>
+        </div>
+
+        {open && (
+          <ul className="ml-7 border-l border-dashed border-slate-300">
+            {kids.length > 0 ? (
+              kids.map((child) => renderNode(child, depth + 1))
+            ) : (
+              <li className="relative">
+                <span className="pointer-events-none absolute left-0 top-1/2 h-px w-3 border-t border-dashed border-slate-300" />
+                <p className="ml-3 py-1 pl-5 text-xs italic text-slate-400">
+                  Empty
+                </p>
+              </li>
+            )}
+          </ul>
+        )}
+      </li>
+    );
+  };
 
   return (
     <>
@@ -71,122 +318,10 @@ export const SectionsPanel: React.FC = () => {
 
           {/*
             The dashed rule joining the rows, from the design. Purely decorative,
-            so it's a border on the list rather than an element per row.
+            so it's a border on each list rather than an element per row.
           */}
           <ul className="ml-3 border-l border-dashed border-slate-300">
-            {sections.map((section) => {
-              const active = selectedElementId === section.id;
-              const drop = dropId?.id === section.id ? dropId : null;
-              // A row of columns can sit at the top level too, and the outline
-              // is the reliable way to select one — but it isn't a section, so
-              // it wears the same icon the palette gave it.
-              const Icon =
-                section.type === 'row'
-                  ? COLUMN_ICONS[(section.childElements || []).length] ?? Columns3
-                  : Rows3;
-
-              return (
-                <li
-                  key={section.id}
-                  draggable={renamingId !== section.id}
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    setDragId(section.id);
-                  }}
-                  onDragEnd={() => {
-                    setDragId(null);
-                    setDropId(null);
-                  }}
-                  onDragOver={(e) => {
-                    if (!dragId || dragId === section.id) return;
-                    e.preventDefault();
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const after = e.clientY - rect.top > rect.height / 2;
-                    setDropId((prev) =>
-                      prev?.id === section.id && prev.after === after
-                        ? prev
-                        : { id: section.id, after }
-                    );
-                  }}
-                  onDrop={(e) => {
-                    if (!dragId || dragId === section.id) return;
-                    e.preventDefault();
-                    reorderElement(
-                      dragId,
-                      section.id,
-                      drop?.after ? 'after' : 'before'
-                    );
-                    setDragId(null);
-                    setDropId(null);
-                  }}
-                  className={`relative -ml-px border-l border-dashed border-transparent ${
-                    dragId === section.id ? 'opacity-40' : ''
-                  }`}
-                >
-                  {drop && (
-                    <span
-                      className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-accent-500 ${
-                        drop.after ? 'bottom-0' : 'top-0'
-                      }`}
-                    />
-                  )}
-
-                  {/* The horizontal tick joining this row to the rule. */}
-                  <span className="absolute left-0 top-1/2 h-px w-3 border-t border-dashed border-slate-300" />
-
-                  <div
-                    className={`group ml-3 flex items-center gap-2 rounded-lg py-1.5 pl-1 pr-1 ${
-                      active ? 'bg-accent-50' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => select(section.id)}
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
-                        active
-                          ? 'border-accent-300 bg-white text-accent-600'
-                          : 'border-slate-200 bg-white text-slate-500'
-                      }`}
-                      aria-label={`Select ${blockName(section)}`}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </button>
-
-                    <InlineRename
-                      value={blockName(section)}
-                      onChange={(name) => rename(section, name)}
-                      editing={renamingId === section.id}
-                      onEditingChange={(editing) =>
-                        setRenamingId(editing ? section.id : null)
-                      }
-                      className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-left text-base ${
-                        active ? 'font-semibold text-accent-800' : 'text-slate-800'
-                      }`}
-                      inputClassName="min-w-0 flex-1 rounded border border-accent-500 px-1 py-1 text-base text-slate-900 outline-none"
-                    />
-
-                    <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <button
-                        type="button"
-                        title="Duplicate section"
-                        onClick={() => duplicateElement(section.id)}
-                        className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-slate-800"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete section"
-                        onClick={() => deleteElement(section.id)}
-                        className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+            {sections.map((section) => renderNode(section, 0))}
           </ul>
 
           <button
@@ -204,3 +339,13 @@ export const SectionsPanel: React.FC = () => {
     </>
   );
 };
+
+/** The dragged block itself, wherever it lives in the tree. */
+function findInTree(list: EmailElement[], id: string): EmailElement | null {
+  for (const el of list) {
+    if (el.id === id) return el;
+    const found = findInTree(childrenOf(el), id);
+    if (found) return found;
+  }
+  return null;
+}

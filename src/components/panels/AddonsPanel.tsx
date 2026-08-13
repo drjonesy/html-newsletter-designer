@@ -227,7 +227,7 @@ export const AddonsPanel: React.FC = () => {
               <>
                 <ol className="mt-3 list-decimal space-y-1 pl-4 text-xs leading-relaxed text-slate-600 marker:text-slate-400">
                   <li>
-                    Run <code className={code}>pnpm build:extension</code> in the
+                    Run <code className={code}>pnpm ext:build</code> in the
                     project
                   </li>
                   <li>

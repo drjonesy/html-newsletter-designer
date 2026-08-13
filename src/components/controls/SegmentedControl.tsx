@@ -9,7 +9,12 @@ export interface Segment<T extends string> {
 }
 
 interface SegmentedControlProps<T extends string> {
-  value: T;
+  /**
+   * Absent leaves every segment unselected. That's a real state for a control
+   * standing in for an optional field — a block whose alignment is inherited
+   * rather than set has no segment to raise.
+   */
+  value?: T;
   segments: Segment<T>[];
   onChange: (value: T) => void;
   label?: string;

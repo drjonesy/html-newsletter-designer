@@ -64,6 +64,329 @@ export function canNest(child: ElementType, parent: ElementType): boolean {
 }
 
 /**
+ * The block types whose fill is their own required `bgColor` rather than the
+ * optional `backgroundColor` every other type carries.
+ *
+ * All three draw a box — a section's and a column's `<td>`, a quote's
+ * `<blockquote>` — and have had a fill since before backgrounds were general.
+ * Giving them a second field would put two controls behind one colour.
+ */
+const OWN_FILL_TYPES: ElementType[] = ['section', 'column', 'quote'];
+
+/**
+ * The colour painted behind a block, or `''` when it has none.
+ *
+ * One statement of "where does this block keep its background", so the
+ * Inspector can offer the same control on every type without knowing which
+ * field it lands in. `'transparent'` and absent both come back as `''` — they
+ * mean the same thing, and `ColorField` clears to the former.
+ */
+export function blockBackground(el: EmailElement): string {
+  const color = OWN_FILL_TYPES.includes(el.type)
+    ? (el as { bgColor?: string }).bgColor
+    : el.backgroundColor;
+  return color && color !== 'transparent' ? color : '';
+}
+
+/**
+ * A copy of `el` with its background set, or cleared by `''`/`'transparent'`.
+ *
+ * Clearing a general block drops the field rather than storing `'transparent'`,
+ * so a newsletter that has tried a colour and changed its mind exports — and
+ * saves — exactly what it did before. The three own-fill types keep storing
+ * `'transparent'`, which is the value their required field has always used for
+ * "none".
+ */
+export function withBlockBackground(
+  el: EmailElement,
+  color: string
+): EmailElement {
+  const cleared = !color || color === 'transparent';
+  if (OWN_FILL_TYPES.includes(el.type)) {
+    // Cast: spreading the union widens `type`, and only these three arms of it
+    // have a `bgColor` to write.
+    return { ...el, bgColor: cleared ? 'transparent' : color } as EmailElement;
+  }
+  return {
+    ...el,
+    backgroundColor: cleared ? undefined : color,
+  } as EmailElement;
+}
+
+/** A block's padding, per side, in px. */
+export interface BlockPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * The padding a quote saved before the sides were configurable draws.
+ *
+ * The generator hard-coded `padding:16px 20px` for the whole life of the block,
+ * so all four fields absent has to keep meaning that — reading it as 0 would
+ * collapse the box onto its text in every quote in every saved newsletter.
+ */
+const LEGACY_QUOTE_PADDING: BlockPadding = {
+  top: 16,
+  right: 20,
+  bottom: 16,
+  left: 20,
+};
+
+type PaddingSide = keyof BlockPadding;
+
+const ALL_SIDES: readonly PaddingSide[] = ['top', 'right', 'bottom', 'left'];
+
+const PADDING_FIELD: Record<PaddingSide, string> = {
+  top: 'paddingTop',
+  right: 'paddingRight',
+  bottom: 'paddingBottom',
+  left: 'paddingLeft',
+};
+
+/**
+ * The sides a type writes out even at 0. Every other side drops its field
+ * instead of storing a zero.
+ *
+ * Per side rather than per type because `image` is split: top and bottom are
+ * required and seeded by `createNewElement`, so a dropped zero would come back
+ * as the default on the next load, while left and right are the general
+ * optional pair and can go. `section` and `column` require all four, and a
+ * `quote` reads all four absent as its legacy 16/20 — so a deliberate 0 there
+ * has to be stored to mean anything at all.
+ */
+const REQUIRED_SIDES: Partial<Record<ElementType, readonly PaddingSide[]>> = {
+  section: ALL_SIDES,
+  column: ALL_SIDES,
+  quote: ALL_SIDES,
+  image: ['top', 'bottom'],
+};
+
+/**
+ * The space between a block's edge and its contents, per side.
+ *
+ * One statement of "what padding does this block actually have", so the
+ * Inspector can offer the same control on every type and the generator can ask
+ * one question — including the quote's legacy default, which is the only place
+ * absent doesn't mean zero.
+ */
+export function blockPadding(el: EmailElement): BlockPadding {
+  if (el.type === 'quote') {
+    const unset =
+      el.paddingTop === undefined &&
+      el.paddingRight === undefined &&
+      el.paddingBottom === undefined &&
+      el.paddingLeft === undefined;
+    if (unset) return { ...LEGACY_QUOTE_PADDING };
+  }
+  return {
+    top: el.paddingTop ?? 0,
+    right: el.paddingRight ?? 0,
+    bottom: el.paddingBottom ?? 0,
+    left: el.paddingLeft ?? 0,
+  };
+}
+
+/**
+ * A copy of `el` with some or all of its padding sides changed.
+ *
+ * `next` is a patch — the Inspector's box control sends only the sides that
+ * moved — merged over what the block effectively has now, which is what stops
+ * nudging one side of a legacy quote from zeroing the other three.
+ *
+ * A side padded back to 0 drops its field rather than storing a zero, so a
+ * newsletter that has tried padding and changed its mind saves and exports
+ * exactly what it did before. `REQUIRED_SIDES` are the ones that can't take
+ * that shortcut.
+ */
+export function withBlockPadding(
+  el: EmailElement,
+  next: Partial<BlockPadding>
+): EmailElement {
+  const p = { ...blockPadding(el), ...next };
+  const required = REQUIRED_SIDES[el.type] ?? [];
+
+  const patch: Record<string, number | undefined> = {};
+  for (const side of ALL_SIDES) {
+    patch[PADDING_FIELD[side]] =
+      p[side] || required.includes(side) ? p[side] : undefined;
+  }
+
+  // Cast for the same reason `withBlockBackground` needs one: spreading the
+  // union widens `type`, and only some arms require these fields.
+  return { ...el, ...patch } as EmailElement;
+}
+
+/** A block's border: a width per side, and the style and colour they share. */
+export interface BlockBorder extends BlockPadding {
+  style: 'solid' | 'dashed' | 'dotted';
+  color: string;
+}
+
+/**
+ * The colour a border draws in when the block has never been given one.
+ *
+ * The same slate the section and column defaults have always used, so a border
+ * switched on from the Inspector looks like the ones already in the app rather
+ * than an arbitrary black.
+ */
+export const DEFAULT_BORDER_COLOR = '#cbd5e1';
+
+/**
+ * The border widths a quote saved before the sides were configurable draws.
+ *
+ * A 4px left rule was baked into the generator for the whole life of the block,
+ * so all four absent has to keep meaning that — reading it as "no border" would
+ * quietly strip the accent bar off every quote in every saved newsletter. All
+ * four at 0 is a real value, and distinct from absent.
+ */
+const LEGACY_QUOTE_BORDER: BlockPadding = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 4,
+};
+
+/**
+ * The types that write their border out even when nothing is switched on.
+ *
+ * `section` and `column` require all six fields — `createNewElement` seeds
+ * them, so a dropped zero would come back as the default on the next load — and
+ * a `quote` reads its widths absent as the legacy left rule, which makes a
+ * deliberate 0 a value that has to be stored to mean anything at all.
+ */
+const REQUIRED_BORDER_TYPES: ElementType[] = ['section', 'column', 'quote'];
+
+const BORDER_FIELD: Record<PaddingSide, string> = {
+  top: 'borderTopWidth',
+  right: 'borderRightWidth',
+  bottom: 'borderBottomWidth',
+  left: 'borderLeftWidth',
+};
+
+/**
+ * The border a block actually draws.
+ *
+ * One statement of "what border does this block have", so the Inspector can
+ * offer the same control on every type and the generator can ask one question —
+ * including the quote's legacy left rule, which is the only place absent
+ * doesn't mean none, and the style and colour defaults, which is what lets a
+ * width alone be enough to draw something.
+ */
+export function blockBorder(el: EmailElement): BlockBorder {
+  const legacyQuote =
+    el.type === 'quote' &&
+    el.borderTopWidth === undefined &&
+    el.borderRightWidth === undefined &&
+    el.borderBottomWidth === undefined &&
+    el.borderLeftWidth === undefined;
+
+  const widths = legacyQuote
+    ? { ...LEGACY_QUOTE_BORDER }
+    : {
+        top: el.borderTopWidth ?? 0,
+        right: el.borderRightWidth ?? 0,
+        bottom: el.borderBottomWidth ?? 0,
+        left: el.borderLeftWidth ?? 0,
+      };
+
+  return {
+    ...widths,
+    style: el.borderStyle ?? 'solid',
+    color: el.borderColor || DEFAULT_BORDER_COLOR,
+  };
+}
+
+/**
+ * A copy of `el` with some or all of its border changed.
+ *
+ * `next` is a patch — the Inspector's border control sends only what moved —
+ * merged over what the block effectively has now, which is what stops nudging
+ * one side of a legacy quote from zeroing the other three.
+ *
+ * A border turned back off drops all six fields rather than storing zeros and
+ * an unused colour, so a newsletter that has tried a border and changed its
+ * mind saves and exports exactly what it did before. `REQUIRED_BORDER_TYPES`
+ * are the ones that can't take that shortcut.
+ */
+export function withBlockBorder(
+  el: EmailElement,
+  next: Partial<BlockBorder>
+): EmailElement {
+  const b = { ...blockBorder(el), ...next };
+  const required = REQUIRED_BORDER_TYPES.includes(el.type);
+  const drawn = b.top > 0 || b.right > 0 || b.bottom > 0 || b.left > 0;
+
+  const patch: Record<string, number | string | undefined> = {};
+  for (const side of ALL_SIDES) {
+    patch[BORDER_FIELD[side]] = b[side] || required ? b[side] : undefined;
+  }
+  patch.borderStyle = drawn || required ? b.style : undefined;
+  patch.borderColor = drawn || required ? b.color : undefined;
+
+  // Cast for the same reason `withBlockPadding` needs one: spreading the union
+  // widens `type`, and only some arms require these fields.
+  return { ...el, ...patch } as EmailElement;
+}
+
+/**
+ * The corner radius a quote saved before the control existed draws.
+ *
+ * `border-radius:4px` was hard-coded in the generator for the whole life of the
+ * block, so absent has to keep meaning 4 — reading it as 0 would square off
+ * every quote in every saved newsletter. Same shape as `LEGACY_QUOTE_PADDING`.
+ */
+const LEGACY_QUOTE_RADIUS = 4;
+
+/**
+ * The types that write their radius out even at 0, rather than dropping the
+ * field.
+ *
+ * `section`, `column` and `button` require it — `createNewElement` seeds all
+ * three, so a dropped zero would come back as the default on the next load —
+ * and a `quote` reads absent as its legacy 4, which makes a deliberate 0 a
+ * value that has to be stored to mean anything at all.
+ */
+const REQUIRED_RADIUS_TYPES: ElementType[] = [
+  'section',
+  'column',
+  'button',
+  'quote',
+];
+
+/**
+ * How far a block's corners are rounded, in px.
+ *
+ * One statement of "what rounding does this block actually have", so the
+ * Inspector can offer the same control on every type and the generator can ask
+ * one question — including the quote's legacy default, which is the only place
+ * absent doesn't mean square.
+ */
+export function blockRadius(el: EmailElement): number {
+  if (el.type === 'quote' && el.borderRadius === undefined) {
+    return LEGACY_QUOTE_RADIUS;
+  }
+  return el.borderRadius ?? 0;
+}
+
+/**
+ * A copy of `el` with its corner radius set.
+ *
+ * Rounding back to 0 drops the field rather than storing a zero, so a
+ * newsletter that has tried rounded corners and changed its mind saves and
+ * exports exactly what it did before. `REQUIRED_RADIUS_TYPES` are the ones that
+ * can't take that shortcut.
+ */
+export function withBlockRadius(el: EmailElement, radius: number): EmailElement {
+  const keep = radius > 0 || REQUIRED_RADIUS_TYPES.includes(el.type);
+  // Cast for the same reason `withBlockPadding` needs one: spreading the union
+  // widens `type`, and only some arms require the field.
+  return { ...el, borderRadius: keep ? radius : undefined } as EmailElement;
+}
+
+/**
  * A section with no borders, no padding, no margins and no fill.
  *
  * Used to wrap content that wants no visible framing — preset bodies, and the

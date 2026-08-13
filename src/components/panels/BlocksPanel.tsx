@@ -1,28 +1,15 @@
 import React from 'react';
-import {
-  AlignLeft,
-  ClipboardPaste,
-  Code,
-  Columns2,
-  Columns3,
-  Image,
-  List,
-  Minus,
-  MousePointerClick,
-  MoveVertical,
-  Quote,
-  Square,
-  Type,
-} from 'lucide-react';
+import { ClipboardPaste } from 'lucide-react';
 import { BlockRecipe } from '../../utils/elementHelpers';
 import { useDesigner } from '../../state/DesignerContext';
 import { HelpLink } from '../controls';
+import { BLOCK_ICONS, BlockIcon, COLUMN_ICONS } from './blockIcons';
 import { PanelBody, PanelHeader } from './PanelHeader';
 
 interface PaletteItem {
   recipe: BlockRecipe;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: BlockIcon;
 }
 
 /**
@@ -39,21 +26,21 @@ interface PaletteItem {
  * second box that did the same job under a different name.
  */
 const SECTION_BLOCKS: PaletteItem[] = [
-  { recipe: 'columns-1', label: '1 Column', icon: Square },
-  { recipe: 'columns-2', label: '2 Columns', icon: Columns2 },
-  { recipe: 'columns-3', label: '3 Columns', icon: Columns3 },
+  { recipe: 'columns-1', label: '1 Column', icon: COLUMN_ICONS[1] },
+  { recipe: 'columns-2', label: '2 Columns', icon: COLUMN_ICONS[2] },
+  { recipe: 'columns-3', label: '3 Columns', icon: COLUMN_ICONS[3] },
 ];
 
 const CONTENT_BLOCKS: PaletteItem[] = [
-  { recipe: 'image', label: 'Image', icon: Image },
-  { recipe: 'heading', label: 'Heading', icon: Type },
-  { recipe: 'paragraph', label: 'Text', icon: AlignLeft },
-  { recipe: 'button', label: 'Button', icon: MousePointerClick },
-  { recipe: 'divider', label: 'Divider', icon: Minus },
-  { recipe: 'spacer', label: 'Spacer', icon: MoveVertical },
-  { recipe: 'list', label: 'List', icon: List },
-  { recipe: 'quote', label: 'Quote', icon: Quote },
-  { recipe: 'custom-html', label: 'Code', icon: Code },
+  { recipe: 'image', label: 'Image', icon: BLOCK_ICONS.image },
+  { recipe: 'heading', label: 'Heading', icon: BLOCK_ICONS.heading },
+  { recipe: 'paragraph', label: 'Text', icon: BLOCK_ICONS.paragraph },
+  { recipe: 'button', label: 'Button', icon: BLOCK_ICONS.button },
+  { recipe: 'divider', label: 'Divider', icon: BLOCK_ICONS.divider },
+  { recipe: 'spacer', label: 'Spacer', icon: BLOCK_ICONS.spacer },
+  { recipe: 'list', label: 'List', icon: BLOCK_ICONS.list },
+  { recipe: 'quote', label: 'Quote', icon: BLOCK_ICONS.quote },
+  { recipe: 'custom-html', label: 'Code', icon: BLOCK_ICONS['custom-html'] },
 ];
 
 /**

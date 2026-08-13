@@ -26,6 +26,23 @@ export interface BlockVisibility {
   mobile?: boolean;
 }
 
+/**
+ * Horizontal alignment of a block's contents.
+ *
+ * **Absent means inherit** — from the container around it, or from the client's
+ * own default (left) when nothing above sets one. It is deliberately not
+ * "left": a block inside a centred section should follow that section until its
+ * author says otherwise, and a block that has never been aligned must emit no
+ * `text-align` at all so an existing newsletter exports the bytes it always did.
+ *
+ * `left` is therefore a real value, distinct from absent — it's how you opt one
+ * block out of a centred container.
+ *
+ * Not part of the theme cascade. Alignment is layout, in the same category as
+ * the margins that `TypographyStyle` also leaves to the block.
+ */
+export type TextAlign = 'left' | 'center' | 'right';
+
 export interface BaseElement {
   id: string;
   type: ElementType;
@@ -36,6 +53,98 @@ export interface BaseElement {
   label?: string;
   /** Optional — absent means shown everywhere. */
   visibility?: BlockVisibility;
+  /**
+   * A fill painted behind the whole block.
+   *
+   * **Optional, and absent means none** — a block that has never been given one
+   * emits exactly the bytes it did before this field existed, the same bargain
+   * `visibility`, `textAlign` and column stacking strike. `'transparent'` means
+   * the same thing as absent, since that's what `ColorField` clears to.
+   *
+   * `section`, `column` and `quote` are *not* read through this: each already
+   * has a required `bgColor`, the fill of the box it has always drawn, and a
+   * second field behind the first is how the two drift. `blockBackground` /
+   * `withBlockBackground` in `utils/elementHelpers` are the one place that
+   * routes a block to whichever of the two it uses, so the Inspector shows a
+   * single Background control on every type.
+   */
+  backgroundColor?: string;
+  /**
+   * Space between the block's edge and its contents, per side.
+   *
+   * **Optional, and absent means none** — the same bargain `backgroundColor`,
+   * `visibility`, `textAlign` and column stacking strike, so a block that has
+   * never been padded exports exactly the bytes it did before these fields
+   * existed.
+   *
+   * They live on `BaseElement` so there is **one set of names** rather than a
+   * general `padding` sitting behind the four fields `section`, `column` and
+   * `image` already had — that duplication is how two controls end up behind
+   * one box. Those three narrow the sides they require to `number`; `quote`
+   * leaves all four optional but reads absent as the 16/20 it used to hard-code
+   * (see below). `blockPadding` / `withBlockPadding` in `utils/elementHelpers`
+   * are the one statement of all that, so the Inspector offers a single Padding
+   * control on every type without knowing which arm it is editing.
+   *
+   * Not to be confused with a button's `paddingVertical` / `paddingHorizontal`,
+   * which inflate the chip itself; these four are the space around it.
+   */
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  /**
+   * A border, per side, plus the one style and colour all four share.
+   *
+   * **Optional, and absent means none** — the same bargain `backgroundColor`
+   * and the padding sides strike, so a block that has never been given a border
+   * exports the bytes it always did. A side is switched on by a non-zero width;
+   * `borderStyle` absent is `'solid'` and `borderColor` absent is
+   * `DEFAULT_BORDER_COLOR`, so neither has to be set before a width means
+   * something.
+   *
+   * They live on `BaseElement` for the same reason the padding sides do: they
+   * are the *same names* `section`, `column` and `quote` already used, rather
+   * than a second set behind them. The first two narrow all six to required;
+   * `quote` keeps the widths optional and reads all four absent as the 4px left
+   * rule it used to hard-code (see below). `blockBorder` / `withBlockBorder` in
+   * `utils/elementHelpers` are the one statement of that, so the Inspector
+   * offers a single Border control on every type.
+   *
+   * On a `button` the border draws around the chip, like its radius — and only
+   * Outlook's VML fallback constrains it, which can stroke one width for all
+   * four sides but not four different ones.
+   */
+  borderTopWidth?: number;
+  borderRightWidth?: number;
+  borderBottomWidth?: number;
+  borderLeftWidth?: number;
+  borderStyle?: 'solid' | 'dashed' | 'dotted';
+  borderColor?: string;
+  /**
+   * How far the block's corners are rounded, in px.
+   *
+   * **Optional, and absent means square** — same bargain as `backgroundColor`
+   * and the padding sides, so a block that has never been rounded exports the
+   * bytes it always did. `0` says the same thing and emits nothing either.
+   *
+   * It is the *same name* the four types that already rounded themselves use —
+   * `section` and `column` on their `<td>`, `button` on the chip, `quote` with
+   * the 4px it used to hard-code — rather than a second field sitting behind
+   * theirs, which is how one control becomes two. The first three narrow it to
+   * `number`; `quote` leaves it optional and reads absent as 4 (see below).
+   * `blockRadius` / `withBlockRadius` in `utils/elementHelpers` are the one
+   * statement of that, so the Inspector offers a single Rounded-corners control
+   * on every type without knowing which arm it is editing.
+   *
+   * On a `button` it rounds the chip, not the cell behind it — the same split
+   * `bgColor` makes, and what someone asking to round a button means.
+   *
+   * Rounding is CSS-only: Outlook's Word engine ignores it, and no client clips
+   * a block's children to it, so it rounds the block's own fill and border
+   * rather than what sits inside.
+   */
+  borderRadius?: number;
 }
 
 export interface ImageElement extends BaseElement {
@@ -45,7 +154,16 @@ export interface ImageElement extends BaseElement {
   width: number | string;
   height?: number | string;
   href?: string;
-  alignment: 'left' | 'center' | 'right';
+  /** Required and always set — an image is placed in a cell that has to align it. */
+  alignment: TextAlign;
+  /**
+   * Required, and always written out even at 0 — `createNewElement` seeds them,
+   * so dropping a zero would let the default come back on the next load. The
+   * left and right sides are the optional pair inherited from `BaseElement`,
+   * and the generator only widens to the four-value shorthand once one of them
+   * is set, which keeps an image that predates them exporting the two
+   * declarations it always did.
+   */
   paddingTop: number;
   paddingBottom: number;
 }
@@ -74,6 +192,8 @@ export interface HeadingElement extends BaseElement {
   lineHeight?: number;
   transform?: 'uppercase' | 'capitalize' | 'none';
   letterSpacing?: string;
+  /** Optional — absent inherits from the container. Not a theme field. */
+  textAlign?: TextAlign;
   marginTop: number;
   marginBottom: number;
 }
@@ -96,6 +216,8 @@ export interface ParagraphElement extends BaseElement {
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
   lineHeight?: number;
+  /** Optional — absent inherits from the container. Not a theme field. */
+  textAlign?: TextAlign;
   marginTop: number;
   marginBottom: number;
 }
@@ -133,6 +255,14 @@ export interface ListElement extends BaseElement {
   /** Applies to the whole list; inline emphasis in items still works. */
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
+  /**
+   * Optional — absent inherits from the container. Not a theme field.
+   *
+   * Centring or right-aligning a list also moves its markers inside the text
+   * flow, or they'd stay pinned to the left padding edge with the copy floating
+   * away from them — see `renderElementBody`.
+   */
+  textAlign?: TextAlign;
   /** Left padding on the list, i.e. how far the markers sit from the edge. */
   indent: number;
   /** Gap below each item. */
@@ -149,10 +279,28 @@ export interface ButtonElement extends BaseElement {
   textColor: string;
   fontSize: number;
   fontWeight: 'normal' | 'bold';
+  /**
+   * The chip's own corners — `BaseElement.borderRadius` narrowed to required,
+   * since `createNewElement` seeds it and the generator has always written the
+   * declaration out. It rounds the button, not the cell behind it.
+   */
   borderRadius: number;
+  /**
+   * The chip's own padding — what makes the button bigger than its label.
+   * Distinct from the block padding on `BaseElement`, which is the space
+   * between the button and whatever holds it.
+   */
   paddingVertical: number;
   paddingHorizontal: number;
-  alignment: 'left' | 'center' | 'right';
+  /** Required and always set — a button is placed in a cell that has to align it. */
+  alignment: TextAlign;
+  /**
+   * Stretch the button across whatever holds it — the email body, or one
+   * column of a row. Optional, and absent means the default shrink-to-fit
+   * button, so a newsletter that has never used it exports the bytes it
+   * always did. `alignment` has no effect while this is on.
+   */
+  fullWidth?: boolean;
   marginTop: number;
   marginBottom: number;
 }
@@ -175,12 +323,25 @@ export interface SectionElement extends BaseElement {
   borderRightWidth: number;
   borderBottomWidth: number;
   borderLeftWidth: number;
-  /** Ignored by Outlook's Word engine; harmless everywhere else. */
+  /**
+   * `BaseElement.borderRadius` narrowed to required — the box this type has
+   * always drawn keeps a field that is always written out. Ignored by Outlook's
+   * Word engine; harmless everywhere else.
+   */
   borderRadius: number;
   paddingTop: number;
   paddingRight: number;
   paddingBottom: number;
   paddingLeft: number;
+  /**
+   * Optional — absent inherits from whatever is around the section.
+   *
+   * A container's alignment lands on its `<td>` and cascades to every block
+   * inside it, so this is "align everything in here"; a child that sets its own
+   * `textAlign` still wins. A section that sets it can no longer emit *nothing*
+   * of its own, so it builds its wrapper table — see `renderElementBody`.
+   */
+  textAlign?: TextAlign;
   marginTop: number;
   marginBottom: number;
   childElements: EmailElement[];
@@ -240,12 +401,23 @@ export interface ColumnElement extends BaseElement {
   borderRightWidth: number;
   borderBottomWidth: number;
   borderLeftWidth: number;
-  /** Ignored by Outlook's Word engine; harmless everywhere else. */
+  /**
+   * `BaseElement.borderRadius` narrowed to required — the box this type has
+   * always drawn keeps a field that is always written out. Ignored by Outlook's
+   * Word engine; harmless everywhere else.
+   */
   borderRadius: number;
   paddingTop: number;
   paddingRight: number;
   paddingBottom: number;
   paddingLeft: number;
+  /**
+   * Optional — absent inherits from the row's surroundings. Cascades to the
+   * column's blocks the same way a section's does, and for the same reason a
+   * column carries the section's box controls: a one-column row *is* the
+   * general-purpose box.
+   */
+  textAlign?: TextAlign;
   childElements: EmailElement[];
 }
 
@@ -270,6 +442,16 @@ export interface SpacerElement extends BaseElement {
   height: number;
 }
 
+/**
+ * A pull quote.
+ *
+ * Its four padding sides are the optional ones on `BaseElement`, with the same
+ * legacy rule its border widths have: **all four absent means the `16px 20px`
+ * the generator used to hard-code.** A quote saved before padding was
+ * configurable has none of the fields, and reading them as 0 would silently
+ * collapse the box onto its text. All four at 0 is a real value, distinct from
+ * absent — which is why the Inspector writes every side rather than a patch.
+ */
 export interface QuoteElement extends BaseElement {
   type: 'quote';
   quote: string;
@@ -297,6 +479,8 @@ export interface QuoteElement extends BaseElement {
   fontWeight?: 'normal' | 'bold';
   /** Optional — defaults to 'italic' for quotes when absent (older saved templates). */
   fontStyle?: 'normal' | 'italic';
+  /** Optional — absent inherits from the container. */
+  textAlign?: TextAlign;
   marginTop: number;
   marginBottom: number;
 }

@@ -1,23 +1,40 @@
 {
   "manifest_version": 3,
-  "name": "HTML Newsletter Designer for Gmail",
-  "version": "0.1.0",
-  "description": "Design a responsive HTML newsletter and drop it straight into a Gmail draft. Runs entirely in your browser — no network calls.",
-  "permissions": ["clipboardRead", "clipboardWrite", "storage"],
-  "host_permissions": ["https://mail.google.com/*"],
+  "name": "Free Email Designer for Gmail. Drag and Drop.",
+  "version": "0.2.0",
+  "description": "Free drag-and-drop email designer. No account, no signup — runs in your browser, with one-click insert into Gmail.",
+  "permissions": [
+    "clipboardRead",
+    "clipboardWrite",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://mail.google.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
-      "js": ["detect.js"],
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "detect.js"
+      ],
       "run_at": "document_start"
     }
   ],

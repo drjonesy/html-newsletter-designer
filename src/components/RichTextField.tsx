@@ -38,6 +38,7 @@ import {
   Underline,
   Strikethrough,
   Palette,
+  Highlighter,
   RemoveFormatting,
   Undo2,
   Redo2,
@@ -45,6 +46,7 @@ import {
 import {
   RICH_TEXT_COLORS,
   RICH_TEXT_FONT_SIZES,
+  RICH_TEXT_HIGHLIGHTS,
   sanitizeRichHtml,
 } from '../utils/richText';
 
@@ -284,6 +286,101 @@ const ContentBridge: React.FC<ContentBridgeProps> = ({
   return null;
 };
 
+const buttonClass =
+  'p-1.5 rounded text-slate-600 hover:bg-white hover:text-red-700 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600';
+const activeClass = 'bg-white text-red-700 shadow-sm';
+
+/** Keeps the text selection alive: focusing a button would collapse it. */
+const keepSelection = (e: React.MouseEvent) => e.preventDefault();
+
+/**
+ * A swatch grid on a toolbar button, with a "none" row above it.
+ *
+ * `onPick` is handed `null` for that row, which is what `$patchStyleText`
+ * wants: the property is *removed* rather than set to a colour that paints
+ * nothing, so the text goes back to inheriting the block's — and clearing a
+ * highlight leaves no `background-color:transparent` behind for Outlook to
+ * misread.
+ */
+const SwatchDropdown: React.FC<{
+  title: string;
+  clearLabel: string;
+  icon: React.ReactNode;
+  swatches: string[];
+  onPick: (color: string | null) => void;
+}> = ({ title, clearLabel, icon, swatches, onPick }) => {
+  const [open, setOpen] = useState(false);
+
+  const pick = (color: string | null) => {
+    onPick(color);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onMouseDown={keepSelection}
+        onClick={() => setOpen((v) => !v)}
+        aria-pressed={open}
+        className={`${buttonClass} flex items-center gap-0.5 ${
+          open ? activeClass : ''
+        }`}
+        title={title}
+      >
+        {icon}
+        <span className="text-[10px] font-bold">▾</span>
+      </button>
+      {open && (
+        // Anchored to the button's *right* edge so it opens leftwards, back
+        // into the panel. Anchoring left runs it off the edge of the
+        // Inspector, which is only 320px wide and can't scroll sideways.
+        <div className="absolute top-full right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-1.5 w-44 space-y-1.5">
+          <button
+            type="button"
+            onMouseDown={keepSelection}
+            onClick={() => pick(null)}
+            title={clearLabel}
+            className="flex w-full items-center gap-1.5 border-b border-slate-100 pb-1.5 text-[10px] font-semibold text-slate-600 hover:text-slate-900"
+          >
+            {/* White with a slash — the shorthand every picker uses for none. */}
+            <span className="relative block w-5 h-5 shrink-0 overflow-hidden rounded border border-slate-300 bg-white">
+              <span className="absolute left-1/2 top-1/2 h-px w-7 -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-red-500" />
+            </span>
+            {clearLabel}
+          </button>
+          <div className="grid grid-cols-6 gap-1">
+            {swatches.map((color) => (
+              <button
+                key={color}
+                type="button"
+                onMouseDown={keepSelection}
+                onClick={() => pick(color)}
+                style={{ backgroundColor: color }}
+                className="w-5 h-5 rounded border border-slate-300 hover:scale-110 transition-transform"
+                title={color}
+              />
+            ))}
+          </div>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+            {/*
+              No `keepSelection` here — preventing mousedown stops the native
+              picker opening at all. Lexical holds the selection in its own
+              state, so losing the DOM one is survivable.
+            */}
+            <input
+              type="color"
+              onChange={(e) => onPick(e.target.value)}
+              className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer p-0"
+            />
+            Custom colour
+          </label>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface ToolbarProps {
   /** Called before every command, so the bridge knows the edit came from a user. */
   onCommand: () => void;
@@ -300,7 +397,6 @@ const Toolbar: React.FC<ToolbarProps> = ({ onCommand }) => {
   const [fontSize, setFontSize] = useState('');
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [showColors, setShowColors] = useState(false);
 
   /** Reads the selection's formats so the buttons can show as pressed. */
   const syncToSelection = useCallback(() => {
@@ -387,13 +483,6 @@ const Toolbar: React.FC<ToolbarProps> = ({ onCommand }) => {
     editor.focus();
   };
 
-  const buttonClass =
-    'p-1.5 rounded text-slate-600 hover:bg-white hover:text-red-700 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600';
-  const activeClass = 'bg-white text-red-700 shadow-sm';
-
-  /** Keeps the text selection alive: focusing a button would collapse it. */
-  const keepSelection = (e: React.MouseEvent) => e.preventDefault();
-
   return (
     <div className="flex items-center gap-0.5 flex-wrap px-1 py-1 bg-slate-50 border-b border-slate-200">
       <button
@@ -455,58 +544,21 @@ const Toolbar: React.FC<ToolbarProps> = ({ onCommand }) => {
         ))}
       </select>
 
-      {/* Text colour */}
-      <div className="relative">
-        <button
-          type="button"
-          onMouseDown={keepSelection}
-          onClick={() => setShowColors((open) => !open)}
-          aria-pressed={showColors}
-          className={`${buttonClass} flex items-center gap-0.5 ${
-            showColors ? activeClass : ''
-          }`}
-          title="Colour for the selected text"
-        >
-          <Palette className="w-3.5 h-3.5" />
-          <span className="text-[10px] font-bold">▾</span>
-        </button>
-        {showColors && (
-          // Anchored to the button's *right* edge so it opens leftwards, back
-          // into the panel. Anchoring left runs it off the edge of the
-          // Inspector, which is only 320px wide and can't scroll sideways.
-          <div className="absolute top-full right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-1.5 w-44 space-y-1.5">
-            <div className="grid grid-cols-6 gap-1">
-              {RICH_TEXT_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  onMouseDown={keepSelection}
-                  onClick={() => {
-                    patchStyle({ color });
-                    setShowColors(false);
-                  }}
-                  style={{ backgroundColor: color }}
-                  className="w-5 h-5 rounded border border-slate-300 hover:scale-110 transition-transform"
-                  title={color}
-                />
-              ))}
-            </div>
-            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
-              {/*
-                No `keepSelection` here — preventing mousedown stops the native
-                picker opening at all. Lexical holds the selection in its own
-                state, so losing the DOM one is survivable.
-              */}
-              <input
-                type="color"
-                onChange={(e) => patchStyle({ color: e.target.value })}
-                className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer p-0"
-              />
-              Custom colour
-            </label>
-          </div>
-        )}
-      </div>
+      <SwatchDropdown
+        title="Colour for the selected text"
+        clearLabel="Default colour"
+        icon={<Palette className="w-3.5 h-3.5" />}
+        swatches={RICH_TEXT_COLORS}
+        onPick={(color) => patchStyle({ color })}
+      />
+
+      <SwatchDropdown
+        title="Highlight behind the selected text"
+        clearLabel="No highlight"
+        icon={<Highlighter className="w-3.5 h-3.5" />}
+        swatches={RICH_TEXT_HIGHLIGHTS}
+        onPick={(color) => patchStyle({ 'background-color': color })}
+      />
 
       <button
         type="button"

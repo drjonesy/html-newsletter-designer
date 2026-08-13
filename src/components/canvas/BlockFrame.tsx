@@ -209,8 +209,13 @@ export const BlockFrame: React.FC<BlockFrameProps> = ({
         </button>
       )}
 
-      {/* Floating action rail, right side. */}
-      {showChrome && (
+      {/*
+        Floating action rail, right side. Selection only — not hover: it's the
+        one piece of chrome that destroys work (delete, duplicate), and on hover
+        it flickers in and out as the cursor crosses the canvas, next to blocks
+        the user never meant to act on.
+      */}
+      {isSelected && (
         <div className="absolute -right-11 top-0 z-20 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-md">
           <button
             type="button"

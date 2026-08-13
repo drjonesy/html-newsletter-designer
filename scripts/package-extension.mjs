@@ -1,7 +1,7 @@
 /**
  * Zips `extension/` into `dist/` for a Chrome Web Store upload.
  *
- * Reached through `pnpm package:extension`, which runs `build:extension` first
+ * Reached through `pnpm ext:package`, which runs `ext:build` first
  * — this script only wraps what is already on disk, so it fails loudly rather
  * than silently shipping a stale or missing app bundle.
  *
@@ -21,48 +21,15 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT, VERSION_RULE, versionProblem } from './manifest-version.mjs';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
+const root = ROOT;
 const extensionDir = resolve(root, 'extension');
 const distDir = resolve(root, 'dist');
 
-/**
- * Chrome's version format, which is *not* semver: one to four dot-separated
- * integers, each 0–65535, no leading zero on a non-zero part, and no
- * pre-release suffix — `1.0.0-rc1` is rejected outright. A human-facing label
- * belongs in the manifest's separate `version_name` field instead.
- *
- * Returns an explanation, or `null` if the version is fine.
- */
-function versionProblem(version) {
-  if (typeof version !== 'string' || version === '') {
-    return 'it is missing';
-  }
-  // Called out on its own: reaching for semver is the likely mistake here, and
-  // "0-rc1 is not a plain integer" describes the symptom rather than the cause.
-  if (/[-+]/.test(version)) {
-    return 'a pre-release or build suffix like "-rc1" is not allowed — put a ' +
-      'label in the manifest\'s "version_name" instead';
-  }
-  const parts = version.split('.');
-  if (parts.length > 4) {
-    return `it has ${parts.length} parts — at most four are allowed`;
-  }
-  for (const part of parts) {
-    if (!/^(0|[1-9][0-9]*)$/.test(part)) {
-      return `"${part}" is not a plain integer without a leading zero`;
-    }
-    if (Number(part) > 65535) {
-      return `"${part}" is above the maximum of 65535`;
-    }
-  }
-  return null;
-}
-
 if (!existsSync(resolve(extensionDir, 'app', 'index.html'))) {
   console.error(
-    'extension/app is missing or empty — run `pnpm build:extension` first.'
+    'extension/app is missing or empty — run `pnpm ext:build` first.'
   );
   process.exit(1);
 }
@@ -74,8 +41,7 @@ const problem = versionProblem(manifest.version);
 if (problem) {
   console.error(
     `extension/manifest.json has an invalid "version": ${problem}.\n` +
-      'Chrome wants one to four dot-separated integers, each 0–65535 ' +
-      '(e.g. 1, 1.0, 0.1.0, 3.1.2.4567).'
+      `${VERSION_RULE}\nSet one with \`pnpm ext:version <version>\`.`
   );
   process.exit(1);
 }

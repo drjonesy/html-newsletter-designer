@@ -20,12 +20,16 @@ const LABELS: Record<InspectorTab, string> = {
  * Which tabs a block gets.
  *
  * Per type, not fixed: a text block has no Content tab because its content is
- * typed on the canvas, and a raw HTML block has nothing to style. Every type
- * gets Visibility and Code — Code both shows what the block emits and is the
- * escape hatch when the controls don't go far enough.
+ * typed on the canvas. Every type gets Visibility and Code — Code both shows
+ * what the block emits and is the escape hatch when the controls don't go far
+ * enough.
+ *
+ * A raw HTML block has a Styles tab holding only its background, which is the
+ * one thing the app can give it without editing the markup its author pasted.
+ * `defaultTabFor` still opens it on Code.
  */
 export function tabsFor(el: EmailElement): InspectorTab[] {
-  if (el.type === 'custom-html') return ['code', 'visibility'];
+  if (el.type === 'custom-html') return ['styles', 'code', 'visibility'];
   /*
     A column gets Styles and nothing else.
 

@@ -25,8 +25,9 @@ pnpm preview    # serve the production build
 pnpm lint       # tsc --noEmit (this is the only check — there is no test suite or ESLint)
 pnpm clean      # rm -rf dist extension/app
 
-pnpm build:extension    # build the app into extension/app/ for the Chrome extension
-pnpm package:extension  # build, then zip extension/ to dist/…-<manifest version>.zip
+pnpm ext:build    # build the app into extension/app/ for the Chrome extension
+pnpm ext:package  # build, then zip extension/ to dist/…-<manifest version>.zip
+pnpm ext:version  # bump the manifest version — asks which, or takes major | minor | patch | an exact version
 ```
 
 Run `pnpm lint` after any change to `src/types.ts` — the discriminated union there is
@@ -36,19 +37,40 @@ load-bearing and type errors surface nowhere else.
 
 `extension/` is the MV3 extension that opens the designer beside a Gmail compose window
 (`manifest.json`, `background.js`, `content.js`, `detect.js`, and its own README for
-loading it unpacked). The designer itself isn't rebuilt for it — `build:extension` is the
+loading it unpacked). The designer itself isn't rebuilt for it — `ext:build` is the
 ordinary Vite build with `--base=./`, because an extension page is loaded from a
 `chrome-extension://` origin where absolute `/assets/…` paths resolve to nothing.
 
-`package:extension` produces the store upload via
+`ext:package` produces the store upload via
 [scripts/package-extension.mjs](scripts/package-extension.mjs). It zips from *inside*
 `extension/` so `manifest.json` lands at the archive root — the store rejects an upload
 that nests it in a folder — names the file after the manifest's `version`, drops the
 developer README, and deletes any existing archive first, since `zip` adds to one that
-already exists rather than replacing it. Bump `version` in
-[extension/manifest.json](extension/manifest.json) before packaging a release; the store
-refuses a version it has already seen. `pnpm lint` is not part of either command — the
+already exists rather than replacing it. `pnpm lint` is not part of either command — the
 build strips types without checking them, so run it yourself before shipping.
+
+The manifest's `version` is Chrome's format, **not semver**: one to four dot-separated
+integers, each 0–65535, no leading zeros, and no `-rc1` suffix (that belongs in the
+separate `version_name` field). `versionProblem` in
+[scripts/manifest-version.mjs](scripts/manifest-version.mjs) is the one statement of that
+rule; both scripts import it, so a bad version fails locally rather than at the end of an
+upload.
+
+**Bumping is a separate command, deliberately.** `pnpm ext:version patch` (or
+`minor`, `major`, or an exact version) rewrites the manifest; `ext:package` only
+ever reads it. Packaging is run repeatedly while testing a build, and a version that
+climbed on every run would burn numbers the store can never reuse — it refuses a version
+it has already seen, so they are one-way. It rewrites the single `version`
+line rather than re-serialising the JSON, which would expand the inline `permissions` and
+`matches` arrays and turn a one-word change into an unreadable diff.
+
+Run with **no argument in a terminal and it asks**, listing the number each bump would
+produce — `patch  0.1.3 → 0.1.4` — since which release a version *is* matters more than
+the word for it. The one-way-ness shapes the prompt too: there is no default, an empty
+line or Ctrl+D cancels rather than picking the smallest bump, and cancelling exits
+non-zero so a chained `&& pnpm ext:package` stops. **With no TTY it doesn't prompt** — a
+missing argument is the usage error it always was, so a hook or a CI step fails instead
+of hanging on a question nobody will answer.
 
 `pnpm-workspace.yaml` exists only to allow `esbuild`'s postinstall script (`allowBuilds`).
 Without it `pnpm build` fails on a missing platform binary. Do not delete it.
@@ -137,8 +159,8 @@ Note the discriminant is the string `status`, not a boolean `ok` — `tsconfig.j
 read a *newer* file. Adding a type is additive (an old build drops the block with a visible
 warning, which beats refusing a file it could mostly read). Removing a type can't break an
 old build at all. Optional additive fields don't qualify either. That's why the version is
-still 2 after `list` and `spacer` were added, `key-value` was retired, `visibility` was
-introduced, and `row`/`column` arrived.
+still 2 after `list` and `spacer` were added, `key-value` was retired, `visibility` and
+per-block padding were introduced, and `row`/`column` arrived.
 
 ### Elements are a discriminated union
 
@@ -150,7 +172,10 @@ introduced, and `row`/`column` arrived.
    supplying defaults, plus an entry in `TYPE_LABELS`
 3. [src/utils/htmlGenerator.ts](src/utils/htmlGenerator.ts) — a `renderElementBody` case
    emitting the email HTML. Text blocks resolve through `resolveTextStyle`
-   rather than reading their own fields — see *The theme cascade*
+   rather than reading their own fields — see *The theme cascade*. The shared
+   `bgStyle` / `bgAttr` / `paddingStyle` / `borderStyle` / `radiusStyle` belong in it
+   too: the Inspector offers Background, Padding, Border and Rounded corners on every
+   type, and a case that ignores them gives the new block four controls that do nothing
 4. [StylesTab.tsx](src/components/panels/inspector/StylesTab.tsx) — an editor arm, and a
    `ContentTab` arm plus `hasContentTab` if it has non-text content
 5. [templateFile.ts](src/utils/templateFile.ts) — add it to `ELEMENT_TYPES`, or project
@@ -199,10 +224,12 @@ Two consequences worth remembering:
 
 ### Rows and columns
 
-A `row` is one `<table>`, one `<tr>`, and a `<td>` per column. It deliberately has **no
-frame of its own** — no fill, border or outer padding — so it stays a single table however
-many columns it has; framing belongs to the individual columns, whose border, padding,
-radius and fill land on the `<td>` (the one box Outlook's Word engine pads reliably).
+A `row` is one `<table>`, one `<tr>`, and a `<td>` per column. It deliberately draws **no
+border of its own**, so it stays a single table however many columns it has; framing
+belongs to the individual columns, whose border, padding, radius and fill land on the
+`<td>` (the one box Outlook's Word engine pads reliably). A row that is given a *fill*
+paints its own `<table>`, and one given *padding* grows a wrapper cell to carry it — see
+*Block padding*, which is where the second table comes from.
 
 **A row is also the palette's general-purpose box.** "1 Column", "2 Columns" and "3
 Columns" are one type in three shapes, and any of them changes count from its Styles tab.
@@ -279,6 +306,179 @@ Consequences worth knowing:
 - `settings.typography` is the one non-scalar setting, so `normalizeSettings`
   validates it field by field — a `typeof` check against an object accepts any
   object, including one whose `h1.fontSize` is a string.
+
+### Alignment
+
+`TextAlign` (`'left' | 'center' | 'right'`) appears twice, with different rules:
+
+- `image.alignment` and `button.alignment` are **required**. Both blocks are placed in a
+  cell that has to align them, so there is no "unset" state; the Inspector offers no reset.
+  A `button.fullWidth` button is the exception: it fills its cell, so there is nowhere for
+  alignment to move it and the Inspector hides the control rather than showing a dead one.
+  Full width is `display:block` on the `<a>` — padding comes out of the width rather than
+  adding to it — and `mso-width-percent:1000` on the VML, since VML has no percentage
+  `width`. It's optional and absent means the ordinary shrink-to-fit button, so the export
+  is byte-identical for anything that hasn't asked for it.
+- `heading`, `paragraph`, `list`, `quote`, `section` and `column` carry an **optional**
+  `textAlign`, and **absent means inherit** — not left. A block follows the container
+  around it until its author says otherwise, and `left` is a real value distinct from
+  absent: it's how you opt one block out of a centred section.
+
+Absent emits no `text-align` at all, which is what keeps a newsletter that has never used
+alignment exporting the bytes it always did — the same bargain visibility and column
+stacking strike. `alignStyle` in the generator is the one statement of that; note its
+leading space, since every caller appends it to a style attribute that already ends in `;`.
+
+Three consequences:
+
+- **A container's alignment lands on its `<td>` and cascades.** That's what makes it "align
+  everything in here", and it's why `section` can no longer take its "emits nothing of its
+  own" early return when `textAlign` is set (`hasAlign`), and why `isBareColumn` is false
+  for a column that aligns. Both would otherwise drop the cell the alignment lives on.
+  `sectionPreviewStyle` / `columnPreviewStyle` in `Canvas.tsx` mirror it so the canvas
+  cascades the same way — keep `undefined` as `undefined` there, or every container starts
+  forcing `left` on its children.
+- **A centred or right-aligned `list` also gets `list-style-position:inside`.** The default
+  `outside` pins markers to the padding edge, so aligning the copy away from that edge
+  strands the bullets. Left keeps `outside` — the nicer hanging indent, and the byte the
+  generator has always emitted.
+- Alignment is **not** part of the theme cascade. It's layout, in the same category as the
+  margins `TypographyStyle` also leaves to the block, so `resolveTextStyle` never sees it
+  and "Reset all" in the Inspector doesn't clear it. Its own reset is on its own control.
+
+### Block backgrounds
+
+Every block can be given a fill. `BaseElement.backgroundColor` is optional and **absent
+means none**, the same bargain visibility, alignment and column stacking strike — a
+newsletter that has never coloured a block exports exactly the bytes it did before the
+field existed, which the fixture diff under *Verifying a change to the generator* confirms.
+`ColorField` clears to `'transparent'`, so that string means "none" too.
+
+**Three types don't use that field.** `section`, `column` and `quote` each have a required
+`bgColor` — the fill of a box they have always drawn — and adding a second field behind the
+first is how the two drift. `blockBackground(el)` / `withBlockBackground(el, color)` in
+[elementHelpers.ts](src/utils/elementHelpers.ts) are the one statement of which field a
+block uses, so the Inspector offers a single **Background** group on every type without
+knowing. `button` is why the general field couldn't just be called `bgColor`: a button's
+`bgColor` is the chip's own fill, and its block background is the cell behind it.
+
+In the generator the fill is built into each case's own markup — `bgStyle` and `bgAttr`
+return `''` for a block that has none, exactly like `alignStyle`. It lands on the `<td>`
+for image, button, divider and spacer (with the `bgcolor` attribute beside it, which is
+what Outlook's Word engine reads), on the element's own tag for heading, paragraph and
+list, and on the row's `<table>`. Two consequences:
+
+- **A filled row can't take its bare one-column early return**, for the same reason a
+  section that aligns can't take its own: the table it would skip is where the fill lives.
+  A border or a radius costs it the same way, and for the same reason.
+  `rowPreviewStyle` in `Canvas.tsx` mirrors it, a row being the one container whose frame
+  React draws.
+- **`custom-html` gets a wrapper** — a one-cell table, and only when a fill, padding,
+  border or radius is set. There's no markup of ours to put the colour on, and styling the
+  first tag of what the author pasted would be editing their HTML.
+
+A fill on a heading, paragraph or list hugs the text unless the block is padded — those
+three carry both on their own tag.
+
+### Block padding
+
+Every block can be given padding on any of its four sides, and the fields for it live on
+`BaseElement` — `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`, all optional,
+**absent meaning none**. Same bargain as backgrounds: a newsletter that has never padded a
+block exports exactly the bytes it did before, which the fixture diff under *Verifying a
+change to the generator* confirms.
+
+They are the *same four names* the types that already padded themselves use, rather than a
+general `padding` object sitting behind them — `section`, `column` and `image` simply
+**narrow** the sides they require to `number`. That's the difference from backgrounds,
+where `bgColor` was already taken and a second name was unavoidable. Two arms still have
+their own rule:
+
+- **`image` keeps its long-standing top/bottom pair required**, with left and right the
+  optional ones from the base. The generator only widens to the shorthand once one of those
+  is set, so an image that predates them keeps emitting `padding-top` / `padding-bottom`.
+- **`quote` reads all four absent as the `16px 20px` it used to hard-code**, exactly like
+  `quoteBorderWidths` does for its 4px left rule. All four at 0 is a real value distinct
+  from absent, which is why the Inspector writes every side rather than a patch.
+
+`blockPadding(el)` / `withBlockPadding(el, patch)` in
+[elementHelpers.ts](src/utils/elementHelpers.ts) are the one statement of all that, so the
+Inspector offers a single **Padding** group on every type without knowing which arm it is
+editing. `withBlockPadding` drops a side's field when it goes back to 0, except for the
+sides in `REQUIRED_SIDES` — which is keyed *per side*, not per type, because `image` is
+split down the middle: its top and bottom are seeded by `createNewElement` so a dropped
+zero would come back as the default on the next load, while its left and right are the
+general optional pair and can go. Padding a block and clearing it again therefore leaves
+both the project file and the export byte-identical.
+
+In the generator `paddingStyle(element)` returns `''` for a block with none, exactly like
+`alignStyle` and `bgStyle`, and `paddingShorthand` collapses to the shortest form that says
+the same thing — which is not cosmetic: only the two-value form emits the `padding:16px
+20px;` a quote has always had. Five arms don't use `paddingStyle`, each because it has
+bytes to preserve that a plain shorthand would change: `section` and `column` have always
+written the four-value form on their `<td>`, `image` its two declarations, `quote` its
+legacy default, and `list` already writes the property. Four consequences:
+
+- **A list's padding-left and its `indent` add up.** The indent is the marker's own hanging
+  distance and the padding is the box, so they're summed into one declaration; the Inspector
+  says so rather than pretending one of them isn't there.
+- **A padded divider moves its rule into a `<div>`.** A border sits *outside* padding, so
+  leaving the rule on the `<td>` would put the line above the space instead of inside it,
+  and left/right padding wouldn't shorten the rule — the one thing a padded divider is for.
+- **A padded row grows a wrapper `<td>`**, which also takes the margins and the fill so the
+  colour covers the padding. Padding can't go on the strip's own `<table>` (Word pads a
+  `<td>`, not a table) nor on the column cells (that would inset the gaps between them
+  too). Like a fill, it costs the row its bare one-column early return, and
+  `rowPreviewStyle` in `Canvas.tsx` mirrors it.
+- **A button's padding is the space around it, not the chip.** `paddingVertical` /
+  `paddingHorizontal` inflate the `<a>`; these four land on the cell holding it. It's why
+  the Inspector labels the first pair "Padding Y / X" under *Shape*.
+
+### Block borders and rounded corners
+
+Every block can be given a border on any of its four sides and a corner radius, and the
+fields for both live on `BaseElement` — `borderTopWidth` … `borderLeftWidth`, `borderStyle`,
+`borderColor` and `borderRadius`, all optional, **absent meaning none**. Same bargain as
+backgrounds and padding, confirmed the same way: the fixture diff under *Verifying a change
+to the generator* is empty for a newsletter that uses neither.
+
+They are the *same names* the types that already drew a border or rounded themselves use,
+rather than a second set behind them — `section` and `column` **narrow** all six to
+`number`, and `button` narrows `borderRadius`. That's the padding pattern, not the
+background one, because no name was already taken. Two arms keep a rule of their own:
+
+- **`quote` reads all four widths absent as its 4px left rule**, and an absent radius as
+  the `4px` it used to hard-code. All four widths at 0 is a real value distinct from
+  absent, which is why the widths are stored rather than dropped for that type.
+- **`button` means the chip, not the cell.** Its radius and its border draw on the `<a>`,
+  the same split `bgColor` makes — the block's *background* is the cell behind it, but
+  someone asking to round or outline a button means the button.
+
+`blockBorder(el)` / `withBlockBorder(el, patch)` and `blockRadius(el)` / `withBlockRadius(el, r)`
+in [elementHelpers.ts](src/utils/elementHelpers.ts) are the one statement of all that, so
+the Inspector offers a single **Border** and **Rounded corners** group on every type
+without knowing which arm it is editing. `withBlockBorder` drops all six fields when no
+side is left, and `withBlockRadius` drops the radius at 0, except for the types in
+`REQUIRED_BORDER_TYPES` / `REQUIRED_RADIUS_TYPES` — so turning either on and off again
+leaves the project file and the export byte-identical.
+
+In the generator `borderStyle(element)` and `radiusStyle(element)` return `''` for a block
+that has neither, exactly like `alignStyle`, `bgStyle` and `paddingStyle`, and land on the
+same box the fill does. Four consequences:
+
+- **A bordered or rounded row keeps its table**, and a bordered or rounded column keeps its
+  cell (`isBareColumn`) — the box the declaration lives on is the one the early return
+  would skip. `rowPreviewStyle` in `Canvas.tsx` mirrors both.
+- **A bordered divider moves its rule into a `<div>`**, exactly as a padded one does. The
+  rule *is* a `border-top` on the `<td>`, and a block border would be a second one on the
+  same cell where only one can win.
+- **Outlook takes the border on a button but not the rounding.** The VML fallback strokes
+  a shape with one width and one colour, so `strokecolor` / `strokeweight` are written only
+  when all four sides match; an uneven border is left to the clients that can draw it
+  rather than guessing which side Outlook should show. `stroke="f"` is still what a button
+  with no border emits.
+- **Nothing clips children to a radius.** Rounding a section rounds its own fill and
+  border; the blocks inside keep their corners. The Inspector says so.
 
 ### Rendering: one generator, two consumers
 
@@ -452,6 +652,19 @@ The selection commands that need more than a bare `execCommand` also live here:
 two use the same trick — let `execCommand` do the hard part (splitting the range across
 existing tags) with a sentinel value, then rewrite what it produced into email-safe markup.
 
+**Removing a colour uses that trick too.** `applyColor(root, INHERIT_COLOR)` and
+`applyHighlight(root, NO_HIGHLIGHT)` are how the toolbars offer "Default colour" and "No
+highlight", and neither can be "delete the style attribute": the colour usually sits on a
+span reaching further than the selection does, and only `execCommand` splits that span and
+pushes the ancestor's colour down onto the parts either side. So they apply
+`COLOR_SENTINEL` — a colour nothing real uses — and then delete the declarations carrying
+it. They take the field's node for that, which is why both are called with `node` from
+`EditingSession`. Asking the browser for `transparent` directly is the thing to avoid: it
+writes `background-color:transparent` rather than removing anything, which looks cleared on
+the canvas but ships a declaration Outlook can render as an opaque box. `filterStyle` drops
+any colour that paints nothing as a backstop. The Inspector's Lexical toolbar reaches the
+same outcome through `$patchStyleText` with a `null` value, which removes the property.
+
 `RICH_TEXT_FONT_SIZES`, `RICH_TEXT_COLORS`, `RICH_TEXT_HIGHLIGHTS` and `RICH_TEXT_FONTS`
 live here too, so the canvas bar, the Inspector's editor and the Theme panel all offer the
 same set. Add a size, swatch or font there — not in a toolbar.
@@ -465,8 +678,10 @@ A section is mostly covered by its children, and every block stops its click bub
 clicking "the section" only works on whatever sliver of its own padding is exposed. Three
 affordances stand in for that:
 
-- The **Sections outline** ([SectionsPanel](src/components/panels/SectionsPanel.tsx)) lists
-  every top-level section. The most reliable route, and the only one that always works.
+- The **Sections outline** ([SectionsPanel](src/components/panels/SectionsPanel.tsx)) is a
+  tree of the whole email — every section, and every block inside it, however deep. The
+  most reliable route, and the only one that always works; it's also how you reach a
+  column, whose own padding is often a few pixels wide.
 - Every top-level section wears a **name chip in the gutter** to the left of the email.
   It's in the gutter rather than above the section because bare sections are flush against
   each other, and a chip above would land on the previous section's last line.
@@ -500,8 +715,15 @@ treat the rest as `'inside'`. Children stop `dragover` bubbling, so a container 
 events over its own padding. An empty container renders a dashed placeholder — without it
 there'd be nothing to aim at.
 
-The Sections outline has its own, simpler drag (top-level rows only, before/after), which
-calls the same `reorderElement`.
+The Sections outline has its own drag, over the same tree and calling the same
+`reorderElement`. It differs in two ways. It draws its own rows, so a row is a drop target
+at any depth and a container takes `'inside'` in its middle band with before/after at the
+edges — no pixel strip, since the rows are a uniform height. And it decides legality
+*itself*, from a parent map built over the tree: `reorderElement` refuses an illegal move
+but refuses it silently, so the outline has to know while dragging whether to draw the
+line. When the position under the cursor is illegal it falls back to the other legal one
+rather than going dead — dropping a paragraph on a row's own heading means "into the
+section that row lives in".
 
 ### Sections are the only home for blocks
 
@@ -600,8 +822,13 @@ Tabs are **per element type** (`tabsFor` in
 | --- | --- |
 | `image`, `button`, `spacer`, `list`, `paragraph` | Content · Styles · Visibility · Code |
 | `heading`, `quote`, `divider`, `section`, `row` | Styles · Visibility · Code |
-| `custom-html` | Code · Visibility |
+| `custom-html` | Styles · Code · Visibility |
 | `column` | Styles |
+
+`custom-html`'s Styles tab holds only the four shared groups — **Background**,
+**Padding**, **Border** and **Rounded corners** — the things the app can give a raw HTML
+block without editing the markup its author pasted, since all of them land on a wrapper
+cell. `defaultTabFor` still opens it on Code.
 
 Text blocks other than `paragraph` have no Content tab: their content is typed straight
 onto the canvas, and a second field saying the same thing is a second place for the two to
@@ -657,7 +884,8 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | [canvas/BlockBody.tsx](src/components/canvas/BlockBody.tsx) | Generated HTML + inline editing |
 | [canvas/TextToolbar.tsx](src/components/canvas/TextToolbar.tsx) | The docked formatting bar |
 | [panels/BlocksPanel.tsx](src/components/panels/BlocksPanel.tsx) | The palette, and Paste HTML |
-| [panels/SectionsPanel.tsx](src/components/panels/SectionsPanel.tsx) | Top-level structure: select, rename, reorder, add |
+| [panels/SectionsPanel.tsx](src/components/panels/SectionsPanel.tsx) | The structure tree: select, rename, reorder, add, at any depth |
+| [panels/blockIcons.ts](src/components/panels/blockIcons.ts) | One icon per block type, shared by the palette and the outline |
 | [panels/ThemePanel.tsx](src/components/panels/ThemePanel.tsx) | Global `EmailSettings`, presets, New |
 | [panels/AddonsPanel.tsx](src/components/panels/AddonsPanel.tsx) | Stub — add-ons and integrations, not built |
 | [panels/inspector/](src/components/panels/inspector/) | `BlockInspector` + Content / Styles / Visibility / Code |

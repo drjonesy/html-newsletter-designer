@@ -182,10 +182,10 @@ export const EditingSessionProvider: React.FC<{ children: React.ReactNode }> = (
           document.execCommand('strikeThrough');
           break;
         case 'color':
-          applyColor(command.value);
+          applyColor(node, command.value);
           break;
         case 'highlight':
-          applyHighlight(command.value);
+          applyHighlight(node, command.value);
           break;
         case 'fontSize':
           applyFontSize(node, command.value);
