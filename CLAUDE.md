@@ -175,7 +175,9 @@ per-block padding were introduced, and `row`/`column` arrived.
    rather than reading their own fields — see *The theme cascade*. The shared
    `bgStyle` / `bgAttr` / `paddingStyle` / `borderStyle` / `radiusStyle` belong in it
    too: the Inspector offers Background, Padding, Border and Rounded corners on every
-   type, and a case that ignores them gives the new block four controls that do nothing
+   type, and a case that ignores them gives the new block four controls that do nothing.
+   Margin is the fifth and needs nothing from the case — `applyOuterMargin` wraps whatever
+   the case returns — unless the new type's own box can carry it, like a heading's tag
 4. [StylesTab.tsx](src/components/panels/inspector/StylesTab.tsx) — an editor arm, and a
    `ContentTab` arm plus `hasContentTab` if it has non-text content
 5. [templateFile.ts](src/utils/templateFile.ts) — add it to `ELEMENT_TYPES`, or project
@@ -480,6 +482,67 @@ same box the fill does. Four consequences:
 - **Nothing clips children to a radius.** Rounding a section rounds its own fill and
   border; the blocks inside keep their corners. The Inspector says so.
 
+### Block margins
+
+Every block can be given a margin on any of its four sides, and the fields live on
+`BaseElement` — `marginTop` … `marginLeft`, all optional, **absent meaning none**. Same
+bargain as backgrounds, padding and borders, confirmed the same way: the fixture diff under
+*Verifying a change to the generator* is empty for a newsletter that has never set one.
+
+They are the *same names* the eight types that always had a vertical margin use, rather
+than a second set behind them — that's the padding pattern again. Those eight narrow
+`marginTop` / `marginBottom` to `number` and keep writing both out even at 0;
+`marginLeft` / `marginRight` are the general optional pair. `blockMargin(el)` /
+`withBlockMargin(el, patch)` in [elementHelpers.ts](src/utils/elementHelpers.ts) are the one
+statement of that, so the Inspector offers a single **Margin** group without knowing which
+arm it is editing, and `REQUIRED_MARGIN_SIDES` — keyed per side, like `REQUIRED_SIDES` —
+is why setting a margin and clearing it again leaves the project file and the export
+byte-identical. There is no legacy default anywhere here: unlike padding and borders, no
+block ever hard-coded a margin, so absent is 0 on every type.
+
+**Where a margin lands depends on the block's own box**, because `margin-left` on a
+`<table width="100%">` doesn't inset it — the table is already as wide as the thing holding
+it, so the margin pushes it out the other side. Three arms, all in `applyOuterMargin`:
+
+- **`heading`, `paragraph`, `list` and `quote` take all four on their own tag**
+  (`TAG_MARGIN_TYPES`). Those tags are auto-width, so a horizontal margin narrows them.
+  `tagMargin` widens to the four-value shorthand only once a horizontal side is set — the
+  same trick the image's padding plays — and `list` widens on its own terms, since it has
+  always written `margin:8px 0 16px 0` with *bare* zeros in those slots.
+- **`button`, `section`, `row` and `divider` keep their vertical pair on their own table**
+  (`TABLE_MARGIN_TYPES`, via `tableMargin`), and only the horizontal pair grows a wrapper.
+- **`image`, `spacer` and `custom-html` never had a margin field**, so all four go through
+  the wrapper and none of it costs an existing newsletter a byte.
+
+The wrapper is a one-cell table whose `<td>` carries the margin **as padding**. That is the
+one form of "space outside this block" a table layout renders the way it reads, and it sits
+outside the block's fill, border and radius, which are all on the inner box. It's applied
+in `renderElementToHtml` rather than per case, so it lands outside anything a case has
+already wrapped — a padded row's own wrapper cell included.
+
+Three consequences:
+
+- **A `column`'s margin is applied by `columnCell`, not by the wrapper.** The cell a column
+  lives in belongs to the row, and it is where the column's padding, fill, border and radius
+  all land — so a margin has nowhere outside them to go. When one is set, the cell keeps its
+  width and vertical alignment, takes the margin as padding, and hands the *box* to a table
+  inside itself; with no margin it emits exactly the single cell it always did.
+  `COLUMN_CLASS` stays on the outer cell, so stacking still works and the margin travels to
+  mobile. A margined column is therefore no longer `isBareColumn`, which is what stops a
+  one-column row taking the early return that would drop the cell.
+- **The wrapper goes on the canvas too** — it isn't editor chrome, and leaving it off would
+  make the preview disagree with the email. Containers don't see it (the canvas draws their
+  frame in React), so `sectionPreviewStyle`, `rowPreviewStyle` and `columnPreviewStyle` in
+  `Canvas.tsx` mirror all four sides themselves. A stacked column with a horizontal margin
+  drops its `width:100%` for `auto` there: it's stretched by the column layout, so the two
+  would add up to more than the row.
+- **The Inspector shows Margin immediately above Padding**, on every type — the pair people
+  reach for together, read outside-in so it's obvious they aren't the same knob.
+
+A horizontal margin is *not* a reason for a bare section or a one-column row to keep its
+table: the wrapper is outside it either way, which is why `hasSpacing` and the row's early
+return still ask only about the vertical pair.
+
 ### Rendering: one generator, two consumers
 
 [src/utils/htmlGenerator.ts](src/utils/htmlGenerator.ts) is the single source of email markup.
@@ -681,7 +744,13 @@ affordances stand in for that:
 - The **Sections outline** ([SectionsPanel](src/components/panels/SectionsPanel.tsx)) is a
   tree of the whole email — every section, and every block inside it, however deep. The
   most reliable route, and the only one that always works; it's also how you reach a
-  column, whose own padding is often a few pixels wide.
+  column, whose own padding is often a few pixels wide. **Clicking anywhere on a row
+  selects that block**, which rings it on the canvas, scrolls it into view (`scrollerRef`
+  in `Canvas.tsx`, `block: 'nearest'` so a block already on screen never moves) and opens
+  its Inspector. That's why renaming is the row's **pencil** button rather than a click on
+  the label, and why every other control in the row stops its own click: selecting swaps
+  this panel for the Inspector, so a click that meant "expand" or "rename" would take the
+  outline away in the same gesture.
 - Every top-level section wears a **name chip in the gutter** to the left of the email.
   It's in the gutter rather than above the section because bare sections are flush against
   each other, and a chip above would land on the previous section's last line.
@@ -825,10 +894,10 @@ Tabs are **per element type** (`tabsFor` in
 | `custom-html` | Styles · Code · Visibility |
 | `column` | Styles |
 
-`custom-html`'s Styles tab holds only the four shared groups — **Background**,
-**Padding**, **Border** and **Rounded corners** — the things the app can give a raw HTML
-block without editing the markup its author pasted, since all of them land on a wrapper
-cell. `defaultTabFor` still opens it on Code.
+`custom-html`'s Styles tab holds only the five shared groups — **Background**,
+**Padding**, **Border**, **Rounded corners** and **Margin** — the things the app can give a
+raw HTML block without editing the markup its author pasted, since all of them land on a
+wrapper cell. `defaultTabFor` still opens it on Code.
 
 Text blocks other than `paragraph` have no Content tab: their content is typed straight
 onto the canvas, and a second field saying the same thing is a second place for the two to

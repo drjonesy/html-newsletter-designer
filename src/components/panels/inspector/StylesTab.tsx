@@ -19,6 +19,7 @@ import {
 import {
   blockBackground,
   blockBorder,
+  blockMargin,
   blockPadding,
   blockRadius,
   createColumns,
@@ -26,6 +27,7 @@ import {
   blockName,
   withBlockBackground,
   withBlockBorder,
+  withBlockMargin,
   withBlockPadding,
   withBlockRadius,
 } from '../../../utils/elementHelpers';
@@ -305,30 +307,56 @@ const AlignmentGroup: React.FC<{
 );
 
 /**
- * Top/bottom margin, which is all most blocks have.
- *
- * The generator emits no left/right margin for a non-container, so offering
- * those two fields would be controls that visibly do nothing.
+ * What a margin means on a type where "the space outside the block" needs a
+ * word of its own.
  */
-const MarginGroup: React.FC<{
-  top: number;
-  bottom: number;
-  onChange: (next: { marginTop?: number; marginBottom?: number }) => void;
-}> = ({ top, bottom, onChange }) => (
-  <FieldGroup label="Spacing">
-    <BoxSides
-      label="Margin"
-      sides={['top', 'bottom']}
-      values={{ top, bottom }}
-      onChange={(next) =>
-        onChange({
-          ...(next.top !== undefined ? { marginTop: next.top } : {}),
-          ...(next.bottom !== undefined ? { marginBottom: next.bottom } : {}),
-        })
-      }
-    />
-  </FieldGroup>
-);
+const MARGIN_HINTS: Partial<Record<ElementType, string>> = {
+  row: 'Space around the whole strip. The gap between the columns is the "Gap between columns" field above.',
+  button:
+    'Space around the button’s cell — outside the block background, where padding is inside it.',
+  spacer:
+    'Space either side of the band, on top of its own height. A spacer is usually the margin, so most of the time this stays at 0.',
+  section:
+    'Space around the section, outside its fill and border. A section with a margin can no longer emit nothing of its own.',
+  column:
+    'Space between this column’s box and the cells around it. It adds to the row’s gap rather than replacing it.',
+};
+
+/**
+ * The space outside a block — the last of the controls every type has.
+ *
+ * Which fields it writes is `withBlockMargin`'s business: the eight types that
+ * have always had a top and bottom margin keep writing those two out even at 0,
+ * and everything else drops a side once it's back to zero. The panel doesn't
+ * need to know — including for a `column`, whose margin the generator applies
+ * to the cell its row builds rather than to the column itself.
+ */
+const MarginGroup: React.FC<{ element: EmailElement }> = ({ element }) => {
+  const { updateElement } = useDesigner();
+  const m = blockMargin(element);
+  const hint = MARGIN_HINTS[element.type];
+
+  return (
+    <FieldGroup label="Margin">
+      {/* Keyed on the block for the same reason the Padding group is: `BoxSides`
+          derives "apply to all sides" from the values it opens with. */}
+      <BoxSides
+        key={element.id}
+        label="Margin"
+        values={{ top: m.top, right: m.right, bottom: m.bottom, left: m.left }}
+        max={100}
+        onChange={(next) =>
+          updateElement(withBlockMargin(element, next), {
+            coalesceKey: `margin:${element.id}`,
+          })
+        }
+      />
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        {hint ?? 'Space outside the block, beyond its fill and border.'}
+      </p>
+    </FieldGroup>
+  );
+};
 
 /* --- Section --------------------------------------------------------------- */
 
@@ -476,12 +504,6 @@ const SectionStyles: React.FC<EditorProps<SectionElement>> = ({ element, update 
         onChange={(textAlign) => update({ ...element, textAlign })}
         onReset={() => update({ ...element, textAlign: undefined })}
         hint="Applies to every block in the section. A block that sets its own alignment keeps it."
-      />
-
-      <MarginGroup
-        top={element.marginTop}
-        bottom={element.marginBottom}
-        onChange={(next) => update({ ...element, ...next })}
       />
 
       <FieldGroup>
@@ -660,12 +682,6 @@ const RowStyles: React.FC<EditorProps<RowElement>> = ({ element, update }) => {
           readable.
         </p>
       </FieldGroup>
-
-      <MarginGroup
-        top={element.marginTop}
-        bottom={element.marginBottom}
-        onChange={(next) => update({ ...element, ...next })}
-      />
 
       {columns.length === 1 && (
         <FieldGroup>
@@ -851,12 +867,6 @@ const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
               </div>
             </FieldGroup>
           )}
-
-          <MarginGroup
-            top={element.marginTop}
-            bottom={element.marginBottom}
-            onChange={(next) => update({ ...element, ...next })}
-          />
         </>
       );
     }
@@ -963,41 +973,22 @@ const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
               onChange={(alignment) => update({ ...element, alignment })}
             />
           )}
-
-          <MarginGroup
-            top={element.marginTop}
-            bottom={element.marginBottom}
-            onChange={(next) => update({ ...element, ...next })}
-          />
         </>
       );
 
     case 'image':
+      /*
+        Alignment is all this type adds. Its top and bottom padding used to have
+        a two-sided box of its own here, which the shared Padding group above
+        has covered — all four sides of it — since padding became general; the
+        second control was the two-controls-behind-one-box the shared groups
+        exist to prevent.
+      */
       return (
-        <>
-          <AlignmentGroup
-            value={element.alignment}
-            onChange={(alignment) => update({ ...element, alignment })}
-          />
-
-          <FieldGroup label="Spacing">
-            <BoxSides
-              label="Padding"
-              sides={['top', 'bottom']}
-              values={{ top: element.paddingTop, bottom: element.paddingBottom }}
-              max={80}
-              onChange={(next) =>
-                update({
-                  ...element,
-                  ...(next.top !== undefined ? { paddingTop: next.top } : {}),
-                  ...(next.bottom !== undefined
-                    ? { paddingBottom: next.bottom }
-                    : {}),
-                })
-              }
-            />
-          </FieldGroup>
-        </>
+        <AlignmentGroup
+          value={element.alignment}
+          onChange={(alignment) => update({ ...element, alignment })}
+        />
       );
 
     case 'divider':
@@ -1030,12 +1021,6 @@ const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
               />
             </div>
           </FieldGroup>
-
-          <MarginGroup
-            top={element.marginTop}
-            bottom={element.marginBottom}
-            onChange={(next) => update({ ...element, ...next })}
-          />
         </>
       );
 
@@ -1082,12 +1067,6 @@ const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
             onChange={(textAlign) => update({ ...element, textAlign })}
             onReset={() => update({ ...element, textAlign: undefined })}
           />
-
-          <MarginGroup
-            top={element.marginTop}
-            bottom={element.marginBottom}
-            onChange={(next) => update({ ...element, ...next })}
-          />
         </>
       );
     }
@@ -1110,18 +1089,20 @@ const TypeStyles: React.FC<{ element: EmailElement }> = ({ element }) => {
 };
 
 /**
- * The Styles tab: the four controls every block has — its fill, the space
- * inside it, its border and how far its corners are rounded — then whatever
- * this type adds.
+ * The Styles tab: the five controls every block has — its fill, the space
+ * around it, the space inside it, its border and how far its corners are
+ * rounded — then whatever this type adds.
  *
- * All four are rendered here rather than in each arm, so they sit in the same
+ * All five are rendered here rather than in each arm, so they sit in the same
  * place on every type, and so a type added later gets them without anyone
- * remembering to. They run in the order the box is built: the fill, how far it
- * stands off the content, what encloses it, and how that corner is cut.
+ * remembering to. The two spacing controls are adjacent and in that order:
+ * they are the pair people reach for together, and reading outside-in is what
+ * makes it obvious they aren't the same knob.
  */
 export const StylesTab: React.FC<{ element: EmailElement }> = ({ element }) => (
   <>
     <BackgroundGroup element={element} />
+    <MarginGroup element={element} />
     <PaddingGroup element={element} />
     <BorderGroup element={element} />
     <RoundedCornersGroup element={element} />

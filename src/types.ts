@@ -94,6 +94,33 @@ export interface BaseElement {
   paddingBottom?: number;
   paddingLeft?: number;
   /**
+   * Space *outside* the block, per side.
+   *
+   * **Optional, and absent means none** — the same bargain the padding sides
+   * strike, so a block that has never been given a margin exports exactly the
+   * bytes it did before these fields existed.
+   *
+   * They are the *same names* the eight types that have always had a vertical
+   * margin use, rather than a second set behind them: those types narrow
+   * `marginTop` / `marginBottom` to `number` and keep writing them out even at
+   * 0, while `marginLeft` / `marginRight` are the general optional pair.
+   * `blockMargin` / `withBlockMargin` in `utils/elementHelpers` are the one
+   * statement of that, so the Inspector offers a single Margin control on every
+   * type without knowing which arm it is editing.
+   *
+   * Where they land depends on the block's own box, because a `<table>` or a
+   * `<td>` has no margin to give — a horizontal one on a full-width table
+   * overflows whatever holds it, and a cell ignores margins outright. A
+   * heading, paragraph, list and quote take all four on their own tag; every
+   * other type takes them as padding on a cell outside its box, which
+   * `applyOuterMargin` adds — or, for a `column`, which the cell its row
+   * already builds carries (`columnCell`).
+   */
+  marginTop?: number;
+  marginRight?: number;
+  marginBottom?: number;
+  marginLeft?: number;
+  /**
    * A border, per side, plus the one style and colour all four share.
    *
    * **Optional, and absent means none** — the same bargain `backgroundColor`

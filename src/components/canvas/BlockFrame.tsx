@@ -110,6 +110,9 @@ export const BlockFrame: React.FC<BlockFrameProps> = ({
   return (
     <div
       {...dragProps}
+      /* How the canvas finds a block selected from somewhere else — the
+         Sections outline — to bring it into view. */
+      data-block-id={element.id}
       onClick={stop(() => select(element.id))}
       onMouseOver={onMouseOver}
       style={style}

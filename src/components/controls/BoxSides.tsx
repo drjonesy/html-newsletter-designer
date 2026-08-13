@@ -15,9 +15,9 @@ interface BoxSidesProps {
   /** Prefixes each field's label, e.g. "Padding" -> "Padding top". */
   label: string;
   /**
-   * Which sides this box actually has. Margins on most blocks are top/bottom
-   * only — the generator emits no left/right margin for them, so offering the
-   * fields would be a control that does nothing.
+   * Which sides this box actually has. Every box in the app is four-sided now
+   * that margins are; the prop is kept for a control that genuinely isn't,
+   * rather than for hiding sides a type merely hasn't implemented.
    */
   sides?: Side[];
   values: Partial<Record<Side, number>>;

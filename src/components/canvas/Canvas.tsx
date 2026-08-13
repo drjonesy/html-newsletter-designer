@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ColumnElement,
   ContainerElement,
@@ -10,6 +10,7 @@ import {
 import { renderElementToHtml } from '../../utils/htmlGenerator';
 import {
   blockBorder,
+  blockMargin,
   blockPadding,
   blockRadius,
   canNest,
@@ -51,6 +52,7 @@ const INLINE_EDITABLE_TYPES: ElementType[] = [
  * frame. Change one and change the other.
  */
 function sectionPreviewStyle(el: SectionElement): React.CSSProperties {
+  const m = blockMargin(el);
   return {
     borderStyle: el.borderStyle,
     borderColor: el.borderColor,
@@ -63,8 +65,13 @@ function sectionPreviewStyle(el: SectionElement): React.CSSProperties {
     paddingRight: el.paddingRight,
     paddingBottom: el.paddingBottom,
     paddingLeft: el.paddingLeft,
-    marginTop: el.marginTop,
-    marginBottom: el.marginBottom,
+    // All four, mirroring `applyOuterMargin`: a container's horizontal margin
+    // is a wrapper cell's padding in the export, and space outside the frame
+    // here.
+    marginTop: m.top,
+    marginRight: m.right,
+    marginBottom: m.bottom,
+    marginLeft: m.left,
     backgroundColor:
       el.bgColor && el.bgColor !== 'transparent' ? el.bgColor : undefined,
     // Absent has to stay absent rather than becoming 'left': it means inherit,
@@ -82,6 +89,7 @@ function sectionPreviewStyle(el: SectionElement): React.CSSProperties {
 function rowPreviewStyle(el: RowElement): React.CSSProperties {
   const p = blockPadding(el);
   const b = blockBorder(el);
+  const m = blockMargin(el);
   return {
     borderStyle: b.style,
     borderColor: b.color,
@@ -89,8 +97,10 @@ function rowPreviewStyle(el: RowElement): React.CSSProperties {
     borderRightWidth: b.right,
     borderBottomWidth: b.bottom,
     borderLeftWidth: b.left,
-    marginTop: el.marginTop,
-    marginBottom: el.marginBottom,
+    marginTop: m.top,
+    marginRight: m.right,
+    marginBottom: m.bottom,
+    marginLeft: m.left,
     backgroundColor: el.backgroundColor || undefined,
     paddingTop: p.top,
     paddingRight: p.right,
@@ -108,15 +118,38 @@ function rowPreviewStyle(el: RowElement): React.CSSProperties {
  * the row also has a gap between them, so fixed widths would overflow the
  * email card by exactly the gap. Shrinking distributes that the way the
  * `<table>` does in a real client.
+ *
+ * `stacked` mirrors the `<head>` rule the media query applies on a phone, which
+ * overrides the cell's percentage with `width:100%`. The column is a flex item
+ * in a *column* flex row then, so its basis would size its height — hence
+ * `auto`, with the width stated outright, exactly as the CSS does.
  */
 function columnPreviewStyle(
   el: ColumnElement,
-  width: number
+  width: number,
+  stacked: boolean
 ): React.CSSProperties {
+  /*
+    In the export a column's margin is padding on the cell the row builds, with
+    the column's own box handed to a table inside it. As a flex item the same
+    space is simply a margin: side by side, `flexShrink` absorbs it the way it
+    already absorbs the row's gap.
+
+    Stacked is the one case that needs a word. The item is stretched by the
+    column layout, so `width:100%` and a horizontal margin add up to more than
+    the row — `auto` lets `items-stretch` size it to what's left instead.
+  */
+  const m = blockMargin(el);
+  const stretched = m.left || m.right ? 'auto' : '100%';
+
   return {
-    flexBasis: `${width}%`,
-    flexGrow: 0,
-    flexShrink: 1,
+    marginTop: m.top,
+    marginRight: m.right,
+    marginBottom: m.bottom,
+    marginLeft: m.left,
+    ...(stacked
+      ? { width: stretched, flexBasis: 'auto', flexShrink: 0 }
+      : { flexBasis: `${width}%`, flexGrow: 0, flexShrink: 1 }),
     minWidth: 0,
     borderStyle: el.borderStyle,
     borderColor: el.borderColor,
@@ -143,13 +176,36 @@ function columnWidthIn(el: EmailElement, row: EmailElement | null): number {
   return index >= 0 ? evenWidths(siblings.length)[index] : 100;
 }
 
+/**
+ * True when a row's columns stack, which on the canvas is the mobile view.
+ *
+ * The generator's rule is a `max-width:600px` media query over the *viewport*,
+ * so the honest mirror is "is the device being previewed narrower than that" —
+ * and the mobile view's 375px card always is, while the desktop view is the
+ * width the email was designed at. A row that opted out never stacks.
+ */
+function stacksOnMobile(row: EmailElement | null, mobile: boolean): boolean {
+  return (
+    mobile &&
+    !!row &&
+    row.type === 'row' &&
+    row.stackOnMobile !== false &&
+    (row.childElements || []).length > 1
+  );
+}
+
 function containerPreviewStyle(
   el: ContainerElement,
-  parent: EmailElement | null
+  parent: EmailElement | null,
+  mobile: boolean
 ): React.CSSProperties {
   if (el.type === 'section') return sectionPreviewStyle(el);
   if (el.type === 'row') return rowPreviewStyle(el);
-  return columnPreviewStyle(el, columnWidthIn(el, parent));
+  return columnPreviewStyle(
+    el,
+    columnWidthIn(el, parent),
+    stacksOnMobile(parent, mobile)
+  );
 }
 
 const descendantIds = (el: EmailElement): string[] =>
@@ -199,6 +255,25 @@ export const Canvas: React.FC = () => {
   } | null>(null);
 
   const paletteDrag = ui.paletteDrag;
+  const isMobile = ui.viewMode === 'mobile';
+
+  /**
+   * Bring the selected block into view.
+   *
+   * The Sections outline can reach a block that is nowhere near the visible
+   * part of a long newsletter, and a selection ring you can't see isn't
+   * feedback. `block: 'nearest'` is what keeps this from firing on an ordinary
+   * canvas click: a block already in view isn't scrolled at all, so nothing
+   * shifts under the cursor.
+   */
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selectedElementId) return;
+    const node = scrollerRef.current?.querySelector(
+      `[data-block-id="${CSS.escape(selectedElementId)}"]`
+    );
+    node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedElementId]);
 
   // Arming without dragging (a click on the grip) must not leave the block
   // draggable, or the next text selection inside it would start a drag.
@@ -470,7 +545,7 @@ export const Canvas: React.FC = () => {
             (el.type === 'section' ? el.borderLeftWidth || 0 : 0) +
             10
           }
-          style={containerPreviewStyle(el, parent)}
+          style={containerPreviewStyle(el, parent, isMobile)}
         >
           {children.length === 0 ? (
             <div
@@ -488,8 +563,20 @@ export const Canvas: React.FC = () => {
               row with the same gap stands in for the generator's `<td>`s and
               spacer cells — the columns keep their own frames, so each stays
               individually selectable.
+
+              In the mobile view it turns vertical, standing in for the media
+              query instead. The gap goes with it, which is what the generator's
+              spacer cell does too: stacked, its `<div>`'s height becomes the
+              space between the columns.
             */
-            <div className="flex items-stretch" style={{ gap: el.gap }}>
+            <div
+              className={`flex ${
+                stacksOnMobile(el, isMobile)
+                  ? 'flex-col items-stretch'
+                  : 'items-stretch'
+              }`}
+              style={{ gap: el.gap }}
+            >
               {children.map((child) => renderBlock(child, el))}
             </div>
           ) : (
@@ -526,11 +613,11 @@ export const Canvas: React.FC = () => {
     );
   };
 
-  const containerWidth =
-    ui.viewMode === 'mobile' ? 375 : template.settings.width;
+  const containerWidth = isMobile ? 375 : template.settings.width;
 
   return (
     <div
+      ref={scrollerRef}
       /*
         The wide gutter is what the section name chips hang in. Setting
         `overflow-y` makes the browser compute `overflow-x` to `auto` too, so a

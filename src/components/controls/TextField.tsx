@@ -86,6 +86,14 @@ export const InlineRename: React.FC<{
   editing: boolean;
   onEditingChange: (editing: boolean) => void;
   placeholder?: string;
+  /**
+   * What starts a rename. `'click'` — the text is its own trigger, as in the
+   * top bar, where there is nothing else the title could mean. `'none'` — plain
+   * text, and the caller starts the rename from a control of its own: the
+   * outline's rows are *selection* targets first, so a click there has to reach
+   * the row rather than open an input.
+   */
+  renameOn?: 'click' | 'none';
 }> = ({
   value,
   onChange,
@@ -94,6 +102,7 @@ export const InlineRename: React.FC<{
   editing,
   onEditingChange,
   placeholder = 'Untitled',
+  renameOn = 'click',
 }) => {
   const [draft, setDraft] = useState(value);
 
@@ -108,7 +117,11 @@ export const InlineRename: React.FC<{
   };
 
   if (!editing) {
-    return (
+    // Plain text rather than a disabled button: a button would swallow the
+    // click its own row is listening for.
+    return renameOn === 'none' ? (
+      <span className={className}>{value || placeholder}</span>
+    ) : (
       <button
         type="button"
         onClick={() => onEditingChange(true)}

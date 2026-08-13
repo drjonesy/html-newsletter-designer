@@ -219,6 +219,88 @@ export function withBlockPadding(
   return { ...el, ...patch } as EmailElement;
 }
 
+const MARGIN_FIELD: Record<PaddingSide, string> = {
+  top: 'marginTop',
+  right: 'marginRight',
+  bottom: 'marginBottom',
+  left: 'marginLeft',
+};
+
+const VERTICAL_SIDES: readonly PaddingSide[] = ['top', 'bottom'];
+
+/**
+ * The margin sides a type writes out even at 0. Every other side drops its
+ * field instead of storing a zero.
+ *
+ * Per side, exactly like `REQUIRED_SIDES`, and for the same reason: these eight
+ * types have had a top and bottom margin since long before the sides were
+ * general, `createNewElement` seeds both, and a dropped zero would come back as
+ * the default on the next load. Their left and right are the general optional
+ * pair and can go. The four types not listed — `image`, `spacer`,
+ * `custom-html`, `column` — never had a margin field at all, so every side of
+ * theirs drops.
+ */
+const REQUIRED_MARGIN_SIDES: Partial<
+  Record<ElementType, readonly PaddingSide[]>
+> = {
+  heading: VERTICAL_SIDES,
+  paragraph: VERTICAL_SIDES,
+  list: VERTICAL_SIDES,
+  button: VERTICAL_SIDES,
+  section: VERTICAL_SIDES,
+  row: VERTICAL_SIDES,
+  divider: VERTICAL_SIDES,
+  quote: VERTICAL_SIDES,
+};
+
+/**
+ * The space outside a block, per side — the same four-sided shape as
+ * `blockPadding`, and the same single question for the Inspector and the
+ * generator to ask.
+ *
+ * Absent means 0 on every type: unlike padding and borders, no block has ever
+ * hard-coded a margin the generator would have to keep drawing, so there is no
+ * legacy default here.
+ */
+export function blockMargin(el: EmailElement): BlockPadding {
+  return {
+    top: el.marginTop ?? 0,
+    right: el.marginRight ?? 0,
+    bottom: el.marginBottom ?? 0,
+    left: el.marginLeft ?? 0,
+  };
+}
+
+/**
+ * A copy of `el` with some or all of its margin sides changed.
+ *
+ * `next` is a patch — the Inspector's box control sends only the sides that
+ * moved — merged over what the block has now, the same shape `withBlockPadding`
+ * takes.
+ *
+ * A side set back to 0 drops its field rather than storing a zero, so a
+ * newsletter that has tried a margin and changed its mind saves and exports
+ * exactly what it did before. `REQUIRED_MARGIN_SIDES` are the ones that can't
+ * take that shortcut.
+ */
+export function withBlockMargin(
+  el: EmailElement,
+  next: Partial<BlockPadding>
+): EmailElement {
+  const m = { ...blockMargin(el), ...next };
+  const required = REQUIRED_MARGIN_SIDES[el.type] ?? [];
+
+  const patch: Record<string, number | undefined> = {};
+  for (const side of ALL_SIDES) {
+    patch[MARGIN_FIELD[side]] =
+      m[side] || required.includes(side) ? m[side] : undefined;
+  }
+
+  // Cast for the same reason `withBlockPadding` needs one: spreading the union
+  // widens `type`, and only some arms require these fields.
+  return { ...el, ...patch } as EmailElement;
+}
+
 /** A block's border: a width per side, and the style and colour they share. */
 export interface BlockBorder extends BlockPadding {
   style: 'solid' | 'dashed' | 'dotted';

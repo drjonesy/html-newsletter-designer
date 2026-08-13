@@ -1,5 +1,6 @@
 import {
   ColumnElement,
+  ElementType,
   EmailElement,
   EmailSettings,
   NewsletterTemplate,
@@ -12,6 +13,7 @@ import { cssFontFamily } from './richText';
 import {
   BlockPadding,
   blockBorder,
+  blockMargin,
   blockPadding,
   blockRadius,
   evenWidths,
@@ -146,6 +148,106 @@ function borderStyle(element: EmailElement): string {
 function radiusStyle(element: EmailElement): string {
   const r = blockRadius(element);
   return r > 0 ? ` border-radius:${r}px;` : '';
+}
+
+/**
+ * The block types whose own tag is a block-level element that can carry all
+ * four margins itself.
+ *
+ * A heading, a paragraph's `<div>`, a list and a `<blockquote>` are all
+ * auto-width, so a left or right margin narrows them rather than pushing them
+ * out of whatever holds them. Every other type's box is a full-width `<table>`,
+ * where the same declaration overflows — see `applyOuterMargin`.
+ */
+const TAG_MARGIN_TYPES: ElementType[] = ['heading', 'paragraph', 'list', 'quote'];
+
+/**
+ * The block types that have written a vertical margin on their own `<table>`
+ * since long before the sides were general.
+ *
+ * They keep writing exactly those two declarations, which is what makes the
+ * four sides a no-op for every newsletter that hasn't used them. Only the
+ * horizontal pair goes to the wrapper.
+ */
+const TABLE_MARGIN_TYPES: ElementType[] = ['button', 'section', 'row', 'divider'];
+
+/** No margin at all, for a row child that isn't a column and has no cell of its own. */
+const ZERO_SIDES: BlockPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * The `margin` declarations for a block that carries them on its own tag.
+ *
+ * Widens to the four-value shorthand only once a horizontal side is set, the
+ * same bargain `paddingStyle` strikes for an image: with none, this is byte for
+ * byte the pair these blocks have always emitted.
+ */
+function tagMargin(element: EmailElement): string {
+  const m = blockMargin(element);
+  if (!m.left && !m.right) {
+    return `margin-top:${m.top}px; margin-bottom:${m.bottom}px;`;
+  }
+  return `margin:${m.top}px ${m.right}px ${m.bottom}px ${m.left}px;`;
+}
+
+/**
+ * The vertical `margin` pair for a block whose own box is a `<table>`.
+ *
+ * Always written, at 0 as much as at 24 — these types have emitted both
+ * declarations for their whole life, and dropping them at 0 would rewrite the
+ * export of every newsletter that holds one.
+ */
+function tableMargin(element: EmailElement): string {
+  const m = blockMargin(element);
+  return `margin-top:${m.top}px; margin-bottom:${m.bottom}px;`;
+}
+
+/**
+ * Wraps a block in a cell carrying the margin its own box can't.
+ *
+ * `margin-left` on a `<table width="100%">` doesn't inset it — the table is
+ * already as wide as the thing holding it, so the margin pushes it out the
+ * other side. A wrapper cell's padding is the one form of "space outside this
+ * block" that a table layout renders the way it reads: the fill, border and
+ * radius all live on the inner box, so the space this adds is outside them.
+ *
+ * Which sides come through depends on where the block already puts them:
+ *
+ * - `TAG_MARGIN_TYPES` need no wrapper at all — all four are on their own tag.
+ * - `TABLE_MARGIN_TYPES` keep their vertical pair where it has always been, so
+ *   only a horizontal margin builds the wrapper.
+ * - `image`, `spacer` and `custom-html` never had a margin field, so all four
+ *   come through here and none of them costs an existing newsletter a byte.
+ * - A `column` is skipped because its margin is applied somewhere else, not
+ *   because it hasn't got one: the cell it lives in belongs to the row, so
+ *   `columnCell` makes the same translation there — see it for how.
+ */
+function applyOuterMargin(html: string, element: EmailElement): string {
+  if (!html.trim()) return html;
+  if (element.type === 'column') return html;
+  if (TAG_MARGIN_TYPES.includes(element.type)) return html;
+
+  const m = blockMargin(element);
+  const ownsVertical = TABLE_MARGIN_TYPES.includes(element.type);
+  const top = ownsVertical ? 0 : m.top;
+  const bottom = ownsVertical ? 0 : m.bottom;
+  if (!top && !m.right && !bottom && !m.left) return html;
+
+  // `paddingShorthand` for the same reason the padded blocks use it: 24 on
+  // every side should read as `padding:24px;` rather than four copies of it.
+  const inset = paddingShorthand({
+    top,
+    right: m.right,
+    bottom,
+    left: m.left,
+  });
+
+  return `<table width="100%" border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td style="${inset}">
+${html}
+    </td>
+  </tr>
+</table>`;
 }
 
 export interface RenderOptions {
@@ -291,9 +393,13 @@ function columnCell(
 
   const borders = column ? borderStyle(column).trim() : '';
 
-  const style = [
-    `width:${pct(width)}%;`,
-    `vertical-align:${valign};`,
+  /*
+    Everything that makes the column a *box*, kept apart from the two
+    declarations that make the cell a cell — its share of the width and how it
+    sits against its neighbours. A margin is the one thing that has to come
+    between them, so it needs to be able to take the box and move it inwards.
+  */
+  const box = [
     column
       ? `padding:${column.paddingTop}px ${column.paddingRight}px ${column.paddingBottom}px ${column.paddingLeft}px;`
       : '',
@@ -305,16 +411,47 @@ function columnCell(
     .filter(Boolean)
     .join(' ');
 
+  const fill = bg ? ` bgcolor="${bg}"` : '';
+
   // An empty cell collapses in some clients, taking the row's other columns
   // out of alignment with it.
   const body =
     renderElementToHtml(child, settings, opts).trim() ||
     '<div style="font-size:1px; line-height:1px;">&nbsp;</div>';
 
-  return `    <td class="${COLUMN_CLASS}" width="${pct(width)}%" valign="${valign}"${
-    bg ? ` bgcolor="${bg}"` : ''
-  } style="${style}">
+  const m = column ? blockMargin(column) : ZERO_SIDES;
+  const cell = `width:${pct(width)}%; vertical-align:${valign};`;
+
+  if (!m.top && !m.right && !m.bottom && !m.left) {
+    const style = [cell, box].filter(Boolean).join(' ');
+    return `    <td class="${COLUMN_CLASS}" width="${pct(width)}%" valign="${valign}"${fill} style="${style}">
 ${body}
+    </td>`;
+  }
+
+  /*
+    A margined column is the one case that needs a table inside the cell.
+
+    A margin has to fall *outside* the column's fill and border, and both of
+    those are on the `<td>` — the only box Outlook's Word engine paints and
+    pads reliably. So the cell keeps its width and its vertical alignment, takes
+    the margin as padding (the same translation `applyOuterMargin` makes, and
+    for the same reason: a `<td>` has no margin to give), and hands the whole
+    box to a cell of its own inside.
+
+    The class stays on the outer cell, so stacking still turns *this* into the
+    full-width block and the margin travels to mobile with it.
+  */
+  return `    <td class="${COLUMN_CLASS}" width="${pct(width)}%" valign="${valign}" style="${cell} ${paddingShorthand(
+    m
+  )}">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td${fill}${box ? ` style="${box}"` : ''}>
+${body}
+          </td>
+        </tr>
+      </table>
     </td>`;
 }
 
@@ -326,18 +463,34 @@ ${body}
  * `<div>` is what carries the gap over to mobile: once the media query turns
  * the cell into a full-width block, its px width stops meaning anything and the
  * div's height becomes the vertical gap between the stacked columns.
+ *
+ * The div also has to state that **width**, and that is what actually makes the
+ * gap appear. The column percentages already total 100, so there is nothing
+ * left of the table for this cell to be given: a `width` attribute and a
+ * `width:` declaration are both hints the auto table layout is free to ignore,
+ * and it does — the cell collapses to its minimum content width, which for a
+ * `&nbsp;` at `font-size:1px` is about a pixel, and the columns come out flush.
+ * A fixed-width child is not a hint. It raises the cell's *minimum* width to
+ * the gap, which the layout has to honour, so the percentage columns shrink to
+ * make room the way the canvas's flex row does.
  */
 function columnGapCell(gap: number): string {
-  return `    <td class="${COLUMN_GAP_CLASS}" width="${gap}" style="width:${gap}px; font-size:0; line-height:0;"><div style="height:${gap}px; line-height:${gap}px; font-size:1px;">&nbsp;</div></td>`;
+  return `    <td class="${COLUMN_GAP_CLASS}" width="${gap}" style="width:${gap}px; font-size:0; line-height:0;"><div style="width:${gap}px; height:${gap}px; line-height:${gap}px; font-size:1px;">&nbsp;</div></td>`;
 }
 
 /**
  * True for a column that draws no box of its own — and so has nothing a `<td>`
  * has to carry for it. Alignment counts: it lives on the cell, so a column that
  * aligns its contents is no longer bare however empty its border and padding.
+ * A margin counts for the same reason — it is padding on that cell.
  */
 function isBareColumn(column: ColumnElement): boolean {
+  const m = blockMargin(column);
   return (
+    !m.top &&
+    !m.right &&
+    !m.bottom &&
+    !m.left &&
     !column.textAlign &&
     column.borderTopWidth === 0 &&
     column.borderRightWidth === 0 &&
@@ -380,6 +533,9 @@ function renderRow(
     only &&
     only.type === 'column' &&
     isBareColumn(only) &&
+    // Vertical only, for the same reason the section's `hasSpacing` is: a
+    // horizontal margin lands on the wrapper `applyOuterMargin` puts outside
+    // this table, so it can't be a reason to keep the table.
     element.marginTop === 0 &&
     element.marginBottom === 0 &&
     // A fill is drawn on the row's own table, and padding on a cell wrapped
@@ -419,7 +575,7 @@ function renderRow(
     An unpadded row still emits the single table it always did.
   */
   const wrapped = !!padding;
-  const margins = `margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;`;
+  const margins = tableMargin(element);
 
   const strip = `<table${stack} width="100%" border="0" cellspacing="0" cellpadding="0"${
     wrapped ? '' : bgAttr(element)
@@ -479,7 +635,16 @@ export function renderElementToHtml(
   settings: EmailSettings,
   opts?: RenderOptions
 ): string {
-  const html = renderElementBody(element, settings, opts);
+  /*
+    The margin wrapper is *not* editor chrome, so it goes on both paths: it is
+    space the block really has, and leaving it off the canvas would make the
+    preview disagree with the email. Blocks that carry their margins on their
+    own tag come back untouched.
+  */
+  const html = applyOuterMargin(
+    renderElementBody(element, settings, opts),
+    element
+  );
   /*
     Never on the canvas. The editor has to keep showing a block the author has
     hidden — otherwise hiding one would make it unselectable and unrecoverable.
@@ -535,7 +700,7 @@ function renderElementBody(
         t.fontWeight === 'bold',
         t.fontStyle === 'italic'
       );
-      return `<${Tag} style="font-size:${t.fontSize}px; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; text-transform:${t.transform}; letter-spacing:${t.letterSpacing}; font-family:${fontFamily}; font-weight:${t.fontWeight}; font-style:${t.fontStyle}; line-height:${t.lineHeight};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">${text}</${Tag}>`;
+      return `<${Tag} style="font-size:${t.fontSize}px; color:${t.color}; ${tagMargin(element)} text-transform:${t.transform}; letter-spacing:${t.letterSpacing}; font-family:${fontFamily}; font-weight:${t.fontWeight}; font-style:${t.fontStyle}; line-height:${t.lineHeight};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">${text}</${Tag}>`;
     }
 
     case 'paragraph': {
@@ -551,7 +716,7 @@ function renderElementBody(
       const content = opts?.editable
         ? editableField(element.content, 'content', opts, 'rich')
         : wrapEmphasis(element.content, weight === 'bold', style === 'italic');
-      return `<div style="font-size:${t.fontSize}px; line-height:${t.lineHeight}; color:${t.color}; margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px; font-family:${fontFamily}; font-weight:${weight}; font-style:${style};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
+      return `<div style="font-size:${t.fontSize}px; line-height:${t.lineHeight}; color:${t.color}; ${tagMargin(element)} font-family:${fontFamily}; font-weight:${weight}; font-style:${style};${alignStyle(element.textAlign)}${bgStyle(element)}${paddingStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
   ${content}
 </div>`;
     }
@@ -609,7 +774,19 @@ function renderElementBody(
             }px;`
           : `padding:0 0 0 ${element.indent}px;`;
 
-      return `<${Tag} style="margin:${element.marginTop}px 0 ${element.marginBottom}px 0; ${padding} color:${t.color}; font-size:${t.fontSize}px; line-height:${t.lineHeight}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; list-style-type:${element.marker};${alignStyle(element.textAlign)}${marker}${bgStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
+      /*
+        The one block that doesn't go through `tagMargin`: it has always
+        written the four-value shorthand with bare zeros in the horizontal
+        slots, so it widens on its own terms — the two-declaration form
+        `tagMargin` returns would rewrite every list in every newsletter.
+      */
+      const m = blockMargin(element);
+      const margin =
+        !m.left && !m.right
+          ? `margin:${m.top}px 0 ${m.bottom}px 0;`
+          : `margin:${m.top}px ${m.right}px ${m.bottom}px ${m.left}px;`;
+
+      return `<${Tag} style="${margin} ${padding} color:${t.color}; font-size:${t.fontSize}px; line-height:${t.lineHeight}; font-family:${fontFamily}; font-weight:${weight}; font-style:${style}; list-style-type:${element.marker};${alignStyle(element.textAlign)}${marker}${bgStyle(element)}${borderStyle(element)}${radiusStyle(element)}">
 ${rows}
 </${Tag}>`;
     }
@@ -666,7 +843,7 @@ ${rows}
           ? `strokecolor="${b.color}" strokeweight="${evenBorder}px"`
           : 'stroke="f"';
 
-      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
+      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="${tableMargin(element)}">
   <tr>
     <td align="${full ? 'center' : element.alignment}"${bgAttr(element)}${
       cellStyle ? ` style="${cellStyle}"` : ''
@@ -702,6 +879,8 @@ ${rows}
         element.paddingRight > 0 ||
         element.paddingBottom > 0 ||
         element.paddingLeft > 0;
+      // Vertical only: a horizontal margin is a wrapper cell `applyOuterMargin`
+      // adds outside all this, so it doesn't need the section's own table.
       const hasSpacing = element.marginTop > 0 || element.marginBottom > 0;
       const hasFill = !!element.bgColor && element.bgColor !== 'transparent';
       // Alignment is the one non-box thing a section can carry, and it lives on
@@ -745,7 +924,7 @@ ${rows}
         ? childrenHtml
         : '<div style="font-size:1px; line-height:1px;">&nbsp;</div>';
 
-      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
+      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="${tableMargin(element)}">
   <tr>
     <td${hasBg ? ` bgcolor="${element.bgColor}"` : ''} style="${cellStyle}">
 ${body}
@@ -789,7 +968,7 @@ ${body}
           ? `<div style="${rule} font-size:1px; line-height:1px;">&nbsp;</div>`
           : '';
 
-      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:${element.marginTop}px; margin-bottom:${element.marginBottom}px;">
+      return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="${tableMargin(element)}">
   <tr>
     <td${bgAttr(element)} style="${`${
       body ? padding.trim() : `${rule} font-size:1px; line-height:1px;`
@@ -839,8 +1018,10 @@ ${body}
         that a left-only quote still emits the exact bytes it always did.
       */
       const blockquoteStyle = [
-        `margin-top:${element.marginTop}px;`,
-        `margin-bottom:${element.marginBottom}px;`,
+        // One entry rather than two: with no horizontal margin `tagMargin`
+        // returns exactly the pair that used to sit here, and the parts are
+        // joined with the same single space.
+        tagMargin(element),
         // All four sides absent means the 16/20 this block hard-coded before
         // padding was configurable — `blockPadding` is where that lives, and
         // the two-value shorthand is the byte it has always emitted.

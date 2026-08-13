@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { EmailElement } from '../../types';
 import {
   blockName,
@@ -198,7 +205,20 @@ export const SectionsPanel: React.FC = () => {
             setDragId(null);
             setDrop(null);
           }}
-          className={`group relative ml-3 flex items-center gap-1 rounded-lg pr-1 ${
+          /*
+            The whole row selects — the outline is a way of *reaching* a block,
+            and a row where only the icon works is a row that mostly does
+            nothing. Selecting rings the block on the canvas, scrolls it into
+            view and opens its Inspector, which is why renaming had to move off
+            the label and onto a button of its own.
+          */
+          onClick={() => {
+            // Not while this row is being renamed: selecting swaps this panel
+            // for the Inspector, and clicking into your own rename input would
+            // take the input away mid-word.
+            if (renamingId !== el.id) select(el.id);
+          }}
+          className={`group relative ml-3 flex cursor-pointer items-center gap-1 rounded-lg pr-1 ${
             top ? 'py-1.5' : 'py-1'
           } ${dragId === el.id ? 'opacity-40' : ''} ${
             here?.position === 'inside' ? 'ring-2 ring-accent-400' : ''
@@ -218,7 +238,10 @@ export const SectionsPanel: React.FC = () => {
           {container && kids.length > 0 ? (
             <button
               type="button"
-              onClick={() => toggle(el.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle(el.id);
+              }}
               className="flex h-5 w-4 shrink-0 items-center justify-center rounded text-slate-400 hover:text-slate-700"
               aria-label={`${open ? 'Collapse' : 'Expand'} ${blockName(el)}`}
               aria-expanded={open}
@@ -255,6 +278,7 @@ export const SectionsPanel: React.FC = () => {
             onEditingChange={(editing) =>
               setRenamingId(editing ? el.id : null)
             }
+            renameOn="none"
             className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-left ${
               top ? 'text-base' : 'text-sm'
             } ${active ? 'font-semibold text-accent-800' : 'text-slate-800'}`}
@@ -263,11 +287,30 @@ export const SectionsPanel: React.FC = () => {
             }`}
           />
 
+          {/*
+            Every action here stops its own click: the row underneath selects,
+            and selecting swaps this panel for the Inspector — which would take
+            the rename input away in the same gesture that asked for it.
+          */}
           <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <button
               type="button"
+              title={`Rename ${blockName(el)}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setRenamingId(el.id);
+              }}
+              className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-slate-800"
+            >
+              <Pencil className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+            </button>
+            <button
+              type="button"
               title={`Duplicate ${blockName(el)}`}
-              onClick={() => duplicateElement(el.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                duplicateElement(el.id);
+              }}
               className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-slate-800"
             >
               <Copy className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
@@ -275,7 +318,10 @@ export const SectionsPanel: React.FC = () => {
             <button
               type="button"
               title={`Delete ${blockName(el)}`}
-              onClick={() => deleteElement(el.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteElement(el.id);
+              }}
               className="rounded p-1.5 text-slate-500 hover:bg-white hover:text-red-600"
             >
               <Trash2 className={top ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
