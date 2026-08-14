@@ -409,14 +409,36 @@ const pct = (value: number) => String(Number(value.toFixed(2)));
  * usable width. A hand-edited project file can put a paragraph straight into a
  * row; rendering it in a cell of its own is a better answer than dropping the
  * author's block on the floor.
+ *
+ * **Widths that don't total 100 are renormalised**, because a browser won't do
+ * it for you. Two cells that each ask for 100% are not laid out at half the
+ * table each: the first is given what it asked for and the second is squeezed
+ * to its minimum content width, which is a button with its label wrapped in
+ * half. Nothing stops a column being set to 100 — the Inspector's per-column
+ * Width field takes any number, and only the row's Width split keeps the total
+ * honest — so the generator has to be the one that can't emit a broken table.
+ *
+ * A row that already totals 100 is returned untouched, so every well-formed
+ * newsletter exports the bytes it always did.
  */
 function columnWidths(children: EmailElement[]): number[] {
   const fallback = evenWidths(children.length);
-  return children.map((child, i) =>
+  const raw = children.map((child, i) =>
     child.type === 'column' && isFinite(child.width) && child.width > 0
       ? child.width
       : fallback[i]
   );
+
+  const total = raw.reduce((sum, w) => sum + w, 0);
+  if (!total || Math.abs(total - 100) < 0.01) return raw;
+
+  // Floored to the two decimals `pct` prints, with the remainder on the last
+  // column — `evenWidths` splits a remainder the same way, and for the same
+  // reason: a row totalling 100.02 is one that can wrap.
+  const scaled = raw.map((w) => Math.floor((w / total) * 10000) / 100);
+  const used = scaled.slice(0, -1).reduce((sum, w) => sum + w, 0);
+  scaled[scaled.length - 1] = Number((100 - used).toFixed(2));
+  return scaled;
 }
 
 /**

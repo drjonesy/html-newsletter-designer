@@ -34,12 +34,18 @@ export const CanvasToolbar: React.FC = () => {
             {
               value: 'desktop',
               icon: <Monitor className="h-4 w-4" />,
-              title: 'Desktop',
+              title: 'Desktop — the width the email is designed at',
             },
             {
+              /*
+                Named for what it now does. It narrows the card and nothing
+                else: columns keep their split rather than standing in for a
+                media query that a pasted email never gets. See
+                `containerPreviewStyle` in `Canvas.tsx`.
+              */
               value: 'mobile',
               icon: <Smartphone className="h-4 w-4" />,
-              title: 'Mobile',
+              title: 'Mobile — a 375px card, no stylesheet reflow',
             },
           ]}
         />

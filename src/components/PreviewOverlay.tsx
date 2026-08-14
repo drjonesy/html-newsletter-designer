@@ -63,7 +63,25 @@ export const PreviewOverlay: React.FC = () => {
 
   if (!ui.previewOpen) return null;
 
-  const width = ui.viewMode === 'mobile' ? 375 : template.settings.width + 40;
+  /*
+    The mobile view is the *same* render, scaled down — not a narrower one.
+
+    Narrowing the frame fired the `<head>` media query, so the preview showed
+    columns stacking full width. That is a true picture of the email only when
+    it is sent as a file: paste it into a Gmail compose window and the
+    stylesheet is stripped on the way in, so the reader's phone gets the
+    desktop layout and zooms out to fit it. Showing the reflow anyway told the
+    author their two columns would stack when, on the path this app is built
+    around, they don't.
+
+    Rendering at the design width and scaling is what a phone does with an
+    email that can't reflow, so the columns stay side by side and shrink — the
+    honest picture. `PHONE_WIDTH` is a mid-range handset in CSS px.
+  */
+  const PHONE_WIDTH = 375;
+  const frameWidth = template.settings.width + 40;
+  const mobile = ui.viewMode === 'mobile';
+  const scale = mobile ? PHONE_WIDTH / frameWidth : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-800">
@@ -141,6 +159,20 @@ export const PreviewOverlay: React.FC = () => {
       </div>
 
       {/*
+        Said out loud, because the mobile view now shows the *worse* of the two
+        outcomes: an author who exports the file and sends it properly gets the
+        reflow this view no longer promises, and should know that.
+      */}
+      {mobile && (
+        <p className="shrink-0 border-b border-slate-700 bg-slate-900/60 px-4 py-2 text-xs text-slate-300">
+          The email at its design width, zoomed to fit — what a phone shows when
+          the <code>&lt;head&gt;</code> stylesheet doesn't survive, which is the
+          case for anything pasted into Gmail. Sent as a file, the media query
+          stacks columns to full width instead.
+        </p>
+      )}
+
+      {/*
         Pasting into a compose window keeps the inline styles — which is every
         style that matters in email — but drops the document's `<head>`, and the
         per-device rules live there. Only worth saying when the email actually
@@ -156,19 +188,36 @@ export const PreviewOverlay: React.FC = () => {
       )}
 
       <div className="flex min-h-0 flex-1 justify-center overflow-auto p-6">
-        <iframe
-          title="Email preview"
-          srcDoc={emailHtml}
-          /*
-            No `allow-scripts`. The document is the user's own markup, but it
-            can hold pasted HTML from anywhere, and there is no reason a preview
-            of an email — which can't run scripts in a real client either —
-            should be able to run one here.
-          */
-          sandbox=""
-          className="h-full rounded-lg border border-slate-700 bg-white shadow-2xl transition-[width] duration-200"
-          style={{ width: `${width}px`, maxWidth: '100%' }}
-        />
+        {/*
+          The frame is the phone; the iframe inside it is the email at its
+          design width, scaled to fit. The iframe is sized *up* by 1/scale in
+          both axes so that once the transform shrinks it, it fills the frame
+          exactly — a scaled box keeps its original layout size otherwise, and
+          the frame would be left with a gap the height of what was scaled off.
+        */}
+        <div
+          className="h-full overflow-hidden rounded-lg border border-slate-700 bg-white shadow-2xl transition-[width] duration-200"
+          style={{ width: `${frameWidth * scale}px`, maxWidth: '100%' }}
+        >
+          <iframe
+            title="Email preview"
+            srcDoc={emailHtml}
+            /*
+              No `allow-scripts`. The document is the user's own markup, but it
+              can hold pasted HTML from anywhere, and there is no reason a
+              preview of an email — which can't run scripts in a real client
+              either — should be able to run one here.
+            */
+            sandbox=""
+            className="border-0 bg-white"
+            style={{
+              width: `${frameWidth}px`,
+              height: `${100 / scale}%`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+            }}
+          />
+        </div>
       </div>
     </div>
   );

@@ -117,39 +117,29 @@ function rowPreviewStyle(el: RowElement): React.CSSProperties {
  * `flexBasis` rather than `width`, and shrinkable: the widths total 100% and
  * the row also has a gap between them, so fixed widths would overflow the
  * email card by exactly the gap. Shrinking distributes that the way the
- * `<table>` does in a real client.
- *
- * `stacked` mirrors the `<head>` rule the media query applies on a phone, which
- * overrides the cell's percentage with `width:100%`. The column is a flex item
- * in a *column* flex row then, so its basis would size its height — hence
- * `auto`, with the width stated outright, exactly as the CSS does.
+ * `<table>` does in a real client — including in the mobile view, where the
+ * columns are the same proportions in a narrower card rather than stacked.
  */
 function columnPreviewStyle(
   el: ColumnElement,
-  width: number,
-  stacked: boolean
+  width: number
 ): React.CSSProperties {
   /*
     In the export a column's margin is padding on the cell the row builds, with
     the column's own box handed to a table inside it. As a flex item the same
-    space is simply a margin: side by side, `flexShrink` absorbs it the way it
-    already absorbs the row's gap.
-
-    Stacked is the one case that needs a word. The item is stretched by the
-    column layout, so `width:100%` and a horizontal margin add up to more than
-    the row — `auto` lets `items-stretch` size it to what's left instead.
+    space is simply a margin: `flexShrink` absorbs it the way it already
+    absorbs the row's gap.
   */
   const m = blockMargin(el);
-  const stretched = m.left || m.right ? 'auto' : '100%';
 
   return {
     marginTop: m.top,
     marginRight: m.right,
     marginBottom: m.bottom,
     marginLeft: m.left,
-    ...(stacked
-      ? { width: stretched, flexBasis: 'auto', flexShrink: 0 }
-      : { flexBasis: `${width}%`, flexGrow: 0, flexShrink: 1 }),
+    flexBasis: `${width}%`,
+    flexGrow: 0,
+    flexShrink: 1,
     minWidth: 0,
     borderStyle: el.borderStyle,
     borderColor: el.borderColor,
@@ -176,36 +166,25 @@ function columnWidthIn(el: EmailElement, row: EmailElement | null): number {
   return index >= 0 ? evenWidths(siblings.length)[index] : 100;
 }
 
-/**
- * True when a row's columns stack, which on the canvas is the mobile view.
- *
- * The generator's rule is a `max-width:600px` media query over the *viewport*,
- * so the honest mirror is "is the device being previewed narrower than that" —
- * and the mobile view's 375px card always is, while the desktop view is the
- * width the email was designed at. A row that opted out never stacks.
- */
-function stacksOnMobile(row: EmailElement | null, mobile: boolean): boolean {
-  return (
-    mobile &&
-    !!row &&
-    row.type === 'row' &&
-    row.stackOnMobile !== false &&
-    (row.childElements || []).length > 1
-  );
-}
+/*
+  The canvas does not stack a row's columns in the mobile view, deliberately.
 
+  It used to, mirroring the generator's `max-width:600px` media query. But that
+  rule only reaches the reader when the email is *sent as a file*: pasted into a
+  Gmail compose window, the `<head>` it lives in is stripped and the columns
+  stay side by side on the phone. Simulating the reflow told the author their
+  layout would stack when, on the path this app is built around, it doesn't —
+  and the narrower canvas was the one place that was easy to believe. The mobile
+  view is now the same layout in a 375px card: what the blocks themselves state,
+  with nothing a stylesheet would have to survive to be true.
+*/
 function containerPreviewStyle(
   el: ContainerElement,
-  parent: EmailElement | null,
-  mobile: boolean
+  parent: EmailElement | null
 ): React.CSSProperties {
   if (el.type === 'section') return sectionPreviewStyle(el);
   if (el.type === 'row') return rowPreviewStyle(el);
-  return columnPreviewStyle(
-    el,
-    columnWidthIn(el, parent),
-    stacksOnMobile(parent, mobile)
-  );
+  return columnPreviewStyle(el, columnWidthIn(el, parent));
 }
 
 const descendantIds = (el: EmailElement): string[] =>
@@ -545,7 +524,7 @@ export const Canvas: React.FC = () => {
             (el.type === 'section' ? el.borderLeftWidth || 0 : 0) +
             10
           }
-          style={containerPreviewStyle(el, parent, isMobile)}
+          style={containerPreviewStyle(el, parent)}
         >
           {children.length === 0 ? (
             <div
@@ -564,17 +543,12 @@ export const Canvas: React.FC = () => {
               spacer cells — the columns keep their own frames, so each stays
               individually selectable.
 
-              In the mobile view it turns vertical, standing in for the media
-              query instead. The gap goes with it, which is what the generator's
-              spacer cell does too: stacked, its `<div>`'s height becomes the
-              space between the columns.
+              It stays horizontal in the mobile view too — see
+              `containerPreviewStyle` for why the canvas no longer stands in for
+              the media query.
             */
             <div
-              className={`flex ${
-                stacksOnMobile(el, isMobile)
-                  ? 'flex-col items-stretch'
-                  : 'items-stretch'
-              }`}
+              className="flex items-stretch"
               style={{ gap: el.gap }}
             >
               {children.map((child) => renderBlock(child, el))}

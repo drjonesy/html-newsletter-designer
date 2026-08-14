@@ -1,11 +1,17 @@
 import React from 'react';
-import { PlayCircle, ShieldCheck } from 'lucide-react';
+import { PlayCircle, ShieldCheck, Smartphone } from 'lucide-react';
 import { PanelBody, PanelHeader } from './PanelHeader';
 
 /**
  * What the app is. The how-to is coming as video, so this panel deliberately
  * stops after the introduction rather than half-documenting the workflow in
  * text that would then have to agree with the recordings.
+ *
+ * The one exception is what a Gmail paste does to the mobile layout. That isn't
+ * a how-to — it's a constraint that decides what someone should design in the
+ * first place, and finding out afterwards means rebuilding the newsletter. It
+ * also answers the question this app gets asked most: why the Mobile view
+ * doesn't stack columns the way every other email tool's does.
  *
  * It sits at the *bottom* of the rail rather than in the run of panels above
  * because it isn't part of composing a newsletter: the four above are steps in
@@ -33,6 +39,45 @@ export const HelpPanel: React.FC = () => (
           Everything runs in this browser tab. There is no server, no account
           and no upload — nothing you type or paste in here leaves your machine.
         </p>
+      </div>
+
+      <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg border border-slate-200 px-4 py-4">
+        <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-accent-500" />
+        <div>
+          <p className="text-sm font-semibold text-slate-700">
+            Pasting into Gmail flattens the phone layout
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            An email carries its "switch to a phone layout" instructions in a
+            block of CSS at the very top of the file. Gmail's compose window
+            deletes that block when you paste — it keeps only the styling
+            written onto each block itself.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            So a pasted newsletter has <strong>one layout everywhere</strong>.
+            Two columns stay two columns on a phone, just narrower. That's why
+            the Mobile view here doesn't stack them — it shows what a phone
+            really gets, rather than a reflow your reader won't see.
+          </p>
+
+          <p className="mt-3 text-xs font-semibold text-slate-700">
+            Designing something you'll paste into Gmail?
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Keep it to a single column and let buttons run full width. One
+            column reads well at any size, so there's nothing to reflow.
+          </p>
+
+          <p className="mt-3 text-xs font-semibold text-slate-700">
+            Need columns that stack on a phone?
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Use <strong>Export HTML → For sending</strong> and send that file
+            through something that mails HTML for you — Mailchimp, Brevo, or
+            your own script. Nothing is stripped there, so columns stack to full
+            width on phones and per-device hiding works too.
+          </p>
+        </div>
       </div>
 
       <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg border border-dashed border-slate-300 px-4 py-4">

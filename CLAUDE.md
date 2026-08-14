@@ -268,6 +268,12 @@ custom split is still meaningful there. `evenWidths` puts the remainder on the l
 (33.33 / 33.33 / 33.34) rather than spreading it, because a row totalling 99.99 leaves a
 hairline of background showing in some clients.
 
+*Should* total 100, but the per-column Width field takes any number, so both generators
+renormalise before they emit anything — `columnWidths` for the table build and
+`fluidShares` for the fluid one. Neither browser nor client does it: two columns set to
+100 each are one full-width cell and one squeezed to its minimum, which is a button with
+its label wrapped in half.
+
 ### The theme cascade
 
 `EmailSettings.typography` is the project's global type scale — one
@@ -533,9 +539,8 @@ Three consequences:
 - **The wrapper goes on the canvas too** — it isn't editor chrome, and leaving it off would
   make the preview disagree with the email. Containers don't see it (the canvas draws their
   frame in React), so `sectionPreviewStyle`, `rowPreviewStyle` and `columnPreviewStyle` in
-  `Canvas.tsx` mirror all four sides themselves. A stacked column with a horizontal margin
-  drops its `width:100%` for `auto` there: it's stretched by the column layout, so the two
-  would add up to more than the row.
+  `Canvas.tsx` mirror all four sides themselves — as a margin on the flex item, which
+  `flexShrink` absorbs the way it already absorbs the row's gap.
 - **The Inspector shows Margin immediately above Padding**, on every type — the pair people
   reach for together, read outside-in so it's obvious they aren't the same knob.
 
@@ -618,8 +623,10 @@ Five things are load-bearing:
   ghost cells, and `fluidTrack` turns them into the percentages every other client lays
   out from, so a share rounded *up* anywhere is a row whose tracks total more than 100%.
   Floor everywhere and give the remainder to the last column, the way `evenWidths` splits
-  percentages. It also normalises widths that don't total 100 — the table layout
-  renormalises those for free and pixels don't.
+  percentages. It also normalises widths that don't total 100 — as does
+  `columnWidths` for the table build, which is **not** something the browser does for
+  you: two cells that each ask for 100% are laid out as one full-width cell and one
+  squeezed to its minimum, not as halves.
 - **The tracks are percentages, and `min-width` is why.** `min-width` is a floor: a px
   floor is one a narrow enough screen can't honour, and the column would then be wider
   than the phone. A percentage cannot overflow, and it makes the row shrink gracefully
@@ -676,6 +683,30 @@ than screenshot: the failure mode this build had before `fluidTrack` was a page 
 wide, which a screenshot at 375px shows as an ordinary-looking column of text. Note that
 `--window-size` won't go below ~500px on macOS, which is why the widths have to be iframes
 inside one wide window.
+
+### The mobile view shows the layout, not the media query
+
+The device switch used to simulate `@media (max-width: 600px)`: the canvas stacked a row's
+columns, and the preview narrowed its iframe until the real stylesheet fired. Both are gone.
+**The mobile view is now the same layout, smaller** — the canvas draws a 375px card with
+the columns still side by side at their percentages, and the preview renders at the design
+width and CSS-scales the iframe down, which is what a phone does with an email that can't
+reflow.
+
+The reason is that the media query only reaches the reader when the file is *sent*. Paste
+into a Gmail compose window — the flow this app is built around, and what its own Copy for
+Gmail button does — and the `<head>` is stripped on the way in, so the columns don't stack
+and the phone zooms out instead. A preview that stacked them was telling the author
+something that wasn't true of the email they were about to send, and the narrow canvas was
+the easiest place in the app to believe.
+
+It now understates the sent case rather than overstating the pasted one, so the preview
+says so in a line under its header. Keep that note if you touch this: the mobile view is
+deliberately showing the worse of the two outcomes.
+
+`stacksOnMobile` in `Canvas.tsx` and the `stacked` arm of `columnPreviewStyle` were the
+simulation, and both are deleted — don't reintroduce a canvas that lays out differently
+from the markup the blocks state.
 
 ### Per-device visibility
 
