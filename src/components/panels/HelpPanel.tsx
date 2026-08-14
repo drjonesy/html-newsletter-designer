@@ -3,7 +3,7 @@ import { PlayCircle, ShieldCheck, Smartphone } from 'lucide-react';
 import { PanelBody, PanelHeader } from './PanelHeader';
 
 /**
- * What the app is. The how-to is coming as video, so this panel deliberately
+ * What the app is, plus a link out to the how-to video. This panel deliberately
  * stops after the introduction rather than half-documenting the workflow in
  * text that would then have to agree with the recordings.
  *
@@ -80,18 +80,26 @@ export const HelpPanel: React.FC = () => (
         </div>
       </div>
 
-      <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg border border-dashed border-slate-300 px-4 py-4">
-        <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-slate-300" />
+      {/* Absolute, and `noreferrer` like the privacy link: this one leaves the
+          app entirely, and an extension page has no origin YouTube would
+          resolve a relative href against. */}
+      <a
+        href="https://www.youtube.com/watch?v=SxKcKL66lkQ"
+        target="_blank"
+        rel="noreferrer"
+        className="mx-5 mt-4 flex items-start gap-3 rounded-lg border border-slate-200 px-4 py-4 hover:border-accent-300 hover:bg-accent-50"
+      >
+        <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-accent-500" />
         <div>
           <p className="text-sm font-semibold text-slate-700">
-            Walkthrough videos coming
+            Watch the how-to video
           </p>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Building the email, and getting it into Gmail, will be covered here
-            as short recordings.
+            A walkthrough on YouTube: building the email, and getting it into
+            Gmail. More recordings will be added here as they're made.
           </p>
         </div>
-      </div>
+      </a>
 
       {/* An `<a>`, not a `HelpLink` — that control is a button precisely
           because there was nowhere offline to point it. `public/privacy.html`
