@@ -959,8 +959,15 @@ inside a container. Both placement paths enforce it, together with `canNest`:
   whole box takes it, so there's no dead edge strip to fall into. `reorderElement`
   re-checks with the same `canNest` as a backstop.
 
-`BLANK_CANVAS_TEMPLATE` seeds three bare sections — Header, Body, Footer — so a new
-newsletter always has somewhere to put the first block.
+**The empty newsletter is the exception, and it's the one that makes New usable.**
+`BLANK_CANVAS_TEMPLATE` has no elements at all — the button says "New empty newsletter" and
+now means it — so there is no section to select and the notice above would be a dead end.
+A block that can't sit at the top level therefore *brings its own* bare section when it
+lands there: `dropNewElement` wraps anything dropped with a null target, `addElement`
+delegates to it when `elements` is empty, and `emptyCanvasDropProps` accepts every recipe
+rather than only containers. It's the same wrapper `migrateToSections` puts around loose
+blocks, and the selection afterwards is the *block*, not the wrapper the author didn't ask
+for.
 
 ### Migrating pre-section templates
 

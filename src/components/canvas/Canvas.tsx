@@ -383,10 +383,16 @@ export const Canvas: React.FC = () => {
 
   /**
    * Stands in for the top level when the email has no blocks at all — without
-   * it there'd be nothing to aim the first section at.
+   * it there'd be nothing to aim the first block at.
+   *
+   * It takes *anything*, including the blocks that can't sit at the top level:
+   * `dropNewElement` gives those their own bare section on the way in. A new
+   * newsletter is empty, so this is the first thing an author ever drags, and
+   * refusing a paragraph here would mean learning about sections before writing
+   * a word.
    */
   const emptyCanvasDropProps = () => {
-    const canDrop = !!paletteDrag && canSitAtTopLevel(recipeType(paletteDrag));
+    const canDrop = !!paletteDrag;
     return {
       onDragOver: (e: React.DragEvent) => {
         if (!canDrop) return;
@@ -638,7 +644,7 @@ export const Canvas: React.FC = () => {
                 : 'This newsletter is empty'}
             </p>
             <p className="text-xs text-slate-500">
-              Add a section from the Sections panel, then drag blocks into it.
+              Drag a block in from the left panel, or click one to add it here.
             </p>
           </div>
         ) : (

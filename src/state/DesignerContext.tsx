@@ -577,12 +577,45 @@ export const DesignerProvider: React.FC<{ children: React.ReactNode }> = ({
     [addTarget]
   );
 
+  const dropNewElement = useCallback(
+    (recipe: BlockRecipe, targetId: string | null, position: DropPosition) => {
+      const created = createFromRecipe(recipe);
+
+      /*
+        A block that can't sit at the top level brings its own section when it
+        lands there — the same bare wrapper `migrateToSections` puts around
+        loose blocks. Only the empty-canvas drop zone passes a null target, and
+        it is only rendered when the email has no blocks at all, so this is the
+        first block of a new newsletter and there is no section to aim at yet.
+
+        The selection is the block, not the wrapper: the wrapper is structure
+        the author didn't ask for, and selecting it would open the Inspector on
+        a section when they just placed a paragraph.
+      */
+      const placed =
+        targetId === null && !canSitAtTopLevel(created.type)
+          ? createBareSection(freshId('sec'), [created])
+          : created;
+
+      commitElements((elements) =>
+        insertRelativeTo(elements, targetId, position, placed)
+      );
+      select(created.id);
+      setPaletteDrag(null);
+    },
+    [commitElements, select]
+  );
+
   /**
    * Add a block by clicking it in the palette.
    *
    * Non-container blocks have to land in a section, so a click needs one to aim
    * at. With nothing selected there's no sensible destination — say so, rather
    * than dropping the block loose at the end of the email.
+   *
+   * Unless the newsletter is *empty*, where there is no section to select and
+   * the notice would be a dead end: the first block brings its own, which is
+   * what lets New hand back a blank document.
    */
   const addElement = useCallback(
     (recipe: BlockRecipe) => {
@@ -594,6 +627,10 @@ export const DesignerProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (!canSitAtTopLevel(type)) {
+        if (template.elements.length === 0) {
+          dropNewElement(recipe, null, 'after');
+          return;
+        }
         setNotice({
           tone: 'warning',
           message:
@@ -606,20 +643,16 @@ export const DesignerProvider: React.FC<{ children: React.ReactNode }> = ({
       commitElements((elements) => [...elements, created]);
       select(created.id);
     },
-    [resolveAddParent, addChildTo, commitElements, select]
+    [
+      resolveAddParent,
+      addChildTo,
+      commitElements,
+      select,
+      dropNewElement,
+      template.elements.length,
+    ]
   );
 
-  const dropNewElement = useCallback(
-    (recipe: BlockRecipe, targetId: string | null, position: DropPosition) => {
-      const created = createFromRecipe(recipe);
-      commitElements((elements) =>
-        insertRelativeTo(elements, targetId, position, created)
-      );
-      select(created.id);
-      setPaletteDrag(null);
-    },
-    [commitElements, select]
-  );
 
   /**
    * Pull `dragId` out of wherever it lives and drop it before/after `targetId`,

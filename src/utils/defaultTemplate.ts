@@ -4,13 +4,16 @@ import { createBareSection as bareSection } from './elementHelpers';
 /**
  * Seed template loaded on first run, and the target of New.
  *
- * Three sections — Header, Body, Footer — because that's the shape almost every
- * newsletter takes, and because blocks have to live inside a section, so an
- * empty email with no sections has nowhere to put the first thing you add.
+ * **Genuinely empty.** The button says "New empty newsletter", and it used to
+ * produce Header / Body / Footer sections with a title and a line of
+ * placeholder copy in them — which is a starting point, not a blank one, and
+ * everything in it had to be deleted before the real newsletter could begin.
  *
- * All three are `bareSection`s: no border, padding, margin or fill, which the
- * generator emits as nothing at all. The structure exists for the editor; the
- * exported email is exactly its blocks until someone styles a section.
+ * Nothing here needs a section to aim at any more: a block added to an empty
+ * email brings its own bare wrapper, in `addElement` and `dropNewElement`
+ * alike. That is the same thing `migrateToSections` does for loose blocks, and
+ * it's why "blocks live inside sections" can stay true without a new document
+ * having to arrive pre-populated.
  */
 export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
   id: 'blank',
@@ -24,39 +27,7 @@ export const BLANK_CANVAS_TEMPLATE: NewsletterTemplate = {
     accentColor: '#944dbc',
     padding: 20,
   },
-  elements: [
-    {
-      ...bareSection('blank-header', [
-        {
-          // No typography of its own: a new newsletter is entirely
-          // theme-driven, so editing Theme restyles it.
-          id: 'blank-h1',
-          type: 'heading',
-          label: 'Heading',
-          text: 'Your Newsletter Title',
-          level: 'h1',
-          marginTop: 10,
-          marginBottom: 15,
-        },
-      ]),
-      label: 'Header',
-    },
-    {
-      ...bareSection('blank-body', [
-        {
-          id: 'blank-p1',
-          type: 'paragraph',
-          label: 'Text',
-          content:
-            'Click this text to edit it, or drag a block in from the left panel.',
-          marginTop: 0,
-          marginBottom: 20,
-        },
-      ]),
-      label: 'Body',
-    },
-    { ...bareSection('blank-footer', []), label: 'Footer' },
-  ],
+  elements: [],
 };
 
 // Preset templates list
