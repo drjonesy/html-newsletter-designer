@@ -550,7 +550,8 @@ return still ask only about the vertical pair.
 - `renderElementToHtml(element, settings, opts?)` — one block's HTML.
   [Canvas](src/components/canvas/Canvas.tsx) injects this per element via
   `dangerouslySetInnerHTML` so blocks stay individually clickable.
-- `generateEmailHtml(template)` — the full document, used by Export and Preview.
+- `generateEmailHtml(template, exportOpts?)` — the full document, used by Export and
+  Preview. `exportOpts.fluid` picks the paste-safe build — see *The two export builds*.
 
 Because the canvas renders the *real* generated HTML rather than a React lookalike, the
 preview and the export can't drift. Keep it that way: **never add a parallel React-based
@@ -558,6 +559,123 @@ renderer for a block.** For the same reason [index.css](src/index.css) carries n
 targeting generated markup — email HTML inlines every style precisely because it can't
 rely on a stylesheet, so overriding Tailwind's preflight there would make the canvas
 disagree with the email.
+
+### The two export builds
+
+`generateEmailHtml(template, { fluid: true })` emits a second build of the same email, and
+the Export modal offers both: **For sending** (the default) and **For pasting into Gmail**.
+
+They differ in one thing — *where the responsive layout is stated*.
+
+The ordinary build states it in the `<head>` stylesheet: `.email-container` goes full
+width under `max-width: 600px`, `.responsive-td` drops its padding, and `.nl-stack .nl-col`
+turns a row's cells into full-width blocks. That is the better markup, and it is what every
+client renders when the file is *sent* as the message body.
+
+**A Gmail compose window strips all of it.** Paste into one — or let the Chrome extension
+insert into one — and only body markup with inline styles survives; `<head>` and every
+`<style>` block are dropped. The message then arrives fixed at `settings.width`, and the
+phone scales the whole 600px card down rather than reflowing it. That is the bug the fluid
+build exists for, and it is *not* visible in Preview, which renders the whole document in
+an iframe where the stylesheet is intact.
+
+The fluid build changes exactly two things, both inline:
+
+- **The card states `width:100%`** instead of `width:${settings.width}px`, so the
+  declaration the media query exists to override is already fluid. Outlook is unaffected —
+  the MSO ghost table above it still pins the width. For a newsletter with no columns this
+  is the *only* difference, a single byte, and it is enough.
+- **A row's columns become inline-block `<div>`s** rather than `<td>`s (`renderFluidRow`),
+  and each one — column or gap — is sized by `fluidTrack`, which is the media query
+  restated as four declarations the client can evaluate itself:
+
+  ```
+  width:100%; width:calc((552px - 100%) * 999); min-width:48.57%; max-width:100%;
+  ```
+
+  `100%` inside `calc` is the *container's* width, and a used width is `width` clamped
+  between `min-width` and `max-width`, so the expression is a switch that reads the space
+  actually available. On a container at least as wide as the row, the difference is
+  negative, `width` clamps to 0 and `min-width` — the column's share — wins, so the
+  columns sit side by side at the proportions the table build gives them. On a phone the
+  difference is positive, ×999 makes it wider than any screen, and `max-width:100%` clamps
+  it back to the whole line: **every column fills the line, so two or three columns become
+  one stacked column**, with no stylesheet involved. The bare `width:100%` in front is the
+  fallback for a client that drops the declaration it can't parse, and it states the
+  *stacked* layout deliberately — see the Gmail limit below.
+
+Five things are load-bearing:
+
+- **`opts.width` is threaded down the tree.** `generateEmailHtml` seeds it with
+  `settings.width - settings.padding * 2`, and `narrow(opts, inset)` takes off whatever
+  each container spends: a section's padding and borders, a column's padding, borders and
+  margin, a row's own box, and the wrapper `applyOuterMargin` builds. Outside fluid mode
+  `narrow` returns `opts` untouched, so nothing else in the generator pays for it.
+  **A column narrows from its own share, not from the row's line** — the share is the
+  div's whole width, and a nested row handed the line thinks it is wider than the thing
+  holding it, which lays it out as though it had already stacked.
+- **`fluidShares` returns whole pixels that total the width exactly.** They size Outlook's
+  ghost cells, and `fluidTrack` turns them into the percentages every other client lays
+  out from, so a share rounded *up* anywhere is a row whose tracks total more than 100%.
+  Floor everywhere and give the remainder to the last column, the way `evenWidths` splits
+  percentages. It also normalises widths that don't total 100 — the table layout
+  renormalises those for free and pixels don't.
+- **The tracks are percentages, and `min-width` is why.** `min-width` is a floor: a px
+  floor is one a narrow enough screen can't honour, and the column would then be wider
+  than the phone. A percentage cannot overflow, and it makes the row shrink gracefully
+  between its breakpoint and its design width instead of standing at a fixed size.
+- **The breakpoint is the row's line less `FLUID_STACK_TOLERANCE`.** The switch is a hard
+  threshold — a hair either side is a different layout — and some clients inset the message
+  body by a pixel or two of their own. A desktop layout that collapsed because the card
+  came out 599px wide would be worse than the bug the whole build exists to fix.
+- **Outlook gets ghost cells.** The Word engine has no inline-block, so `<!--[if mso]>`
+  conditionals rebuild the row as the table it does understand. Gmail strips comments on
+  paste too, so an Outlook recipient of a *pasted* message sees the columns stacked —
+  which is the trade the mode is, and why the modal says to prefer **For sending**.
+
+Two limits worth knowing, both stated in the modal:
+
+- **Gmail never evaluates the switch, so a pasted message stacks at every width.** It
+  strips `calc()` from inline styles, and its compose sanitizer takes `display:inline-block`
+  off these divs as well — which is why the fallback is `width:100%` rather than the share.
+  Gmail's columns are going to stack whatever width they're given, so the choice was
+  full-width stacked or stacked at half the screen. Confirmed from a phone: with the share
+  as the fallback, a two-column row arrived stacked at 48% of the screen. Anything that
+  honours `calc` — Apple Mail, iOS Mail — reads the switch and lays out properly at both
+  ends. A row that needs to stay side by side in Gmail is one that should turn *off*
+  stacking, which keeps it a table in both builds.
+- **A row nested inside a column doesn't stack when the outer row does.** The switch can
+  only see its own container, and a column that has stacked is *wider* than the share its
+  nested row was laid out for — the two overlap, so no threshold tells them apart. The
+  nested row stacks on its own once the screen is narrow enough to squeeze the column
+  below its breakpoint. Where the stylesheet survives, `.nl-stack .nl-col` stacks every
+  row at every depth on top of this, which is why the fluid build still writes the
+  `<style>` block.
+
+The gap is a track like the columns are (`fluidGapDiv`, the twin of `columnGapCell`), so
+it goes full width when the row stacks and the `<div>` it holds becomes the vertical
+gutter — the same thing `.nl-gap` does where the stylesheet survives.
+
+A row that opted *out* of stacking keeps the table in both builds — a table is the thing
+that reliably never wraps.
+
+`TopBar`'s Gmail insert always uses the fluid build, because it only ever lands in a
+compose window. Preview and the canvas never do.
+
+**Verify a change here with a browser, not by eye.** Render both builds, strip the
+`<style>` block from the fluid one to simulate the paste, and measure the columns in
+iframes at 320 / 375 / 430 / 600 and at a real desktop width. The properties to hold are:
+`document.body.scrollWidth` never exceeds the viewport, desktop column widths match the
+table build's, and every row is one column per line by a phone width. The ordinary build's
+diff must stay empty — see *Verifying a change to the generator*.
+
+Headless Chrome is enough for this and a fixture is worth building for it — the useful
+harness is a page that writes each build into an `<iframe>` per width and reports
+`getBoundingClientRect()` for every `.nl-col`, dumped with `--dump-dom`. Measure rather
+than screenshot: the failure mode this build had before `fluidTrack` was a page 559,480px
+wide, which a screenshot at 375px shows as an ordinary-looking column of text. Note that
+`--window-size` won't go below ~500px on macOS, which is why the widths have to be iframes
+inside one wide window.
 
 ### Per-device visibility
 
@@ -961,7 +1079,7 @@ The output targets Gmail, Outlook, and Apple Mail. When editing `htmlGenerator.t
 | [controls/](src/components/controls/) | The field vocabulary every panel is built from |
 | [RichTextField.tsx](src/components/RichTextField.tsx) | The Inspector's Lexical editor |
 | [PreviewOverlay.tsx](src/components/PreviewOverlay.tsx) | Full-bleed preview in a sandboxed iframe |
-| [ExportModal.tsx](src/components/ExportModal.tsx) | The whole email: copy / download / open |
+| [ExportModal.tsx](src/components/ExportModal.tsx) | The whole email: copy / download / open, in either export build |
 | [ImportHtmlModal.tsx](src/components/ImportHtmlModal.tsx) | Paste raw HTML → a `custom-html` block |
 
 Build new panel fields out of [controls/](src/components/controls/) rather than

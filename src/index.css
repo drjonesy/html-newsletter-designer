@@ -31,6 +31,15 @@
   /* Semantic aliases so components don't hardcode a step. */
   --color-accent: var(--color-accent-500);
   --color-danger: #dc2626;
+
+  /*
+   * The tile the logo sits on, in the app bar and on the privacy page. It is
+   * deliberately *not* a step on the accent scale: it's darker than 500 and
+   * lighter than 700, matched to the mark rather than to the chrome, and it
+   * would drift the moment the accent hue was re-walked. Named so a component
+   * still asks for a token rather than a hex.
+   */
+  --color-brand: #632092;
 }
 
 /*

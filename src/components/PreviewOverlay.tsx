@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useDesigner } from '../state/DesignerContext';
 import { copyRenderedEmail } from '../utils/clipboard';
+import { generateEmailHtml } from '../utils/htmlGenerator';
 import { SegmentedControl } from './controls';
 
 /**
@@ -44,8 +45,19 @@ export const PreviewOverlay: React.FC = () => {
     return () => clearTimeout(timer);
   }, [copyState]);
 
+  /*
+    Always the paste build, for the reason `TopBar`'s Gmail insert uses it: this
+    goes to a compose window, and `copyRenderedEmail` puts the *body* on the
+    clipboard — so `<head>` and every media query in it is gone before Gmail
+    even sees the markup. Copying what the iframe above is showing would send a
+    message fixed at `settings.width`, with its columns still side by side on a
+    phone. The frame keeps rendering the ordinary build: that is the email as
+    *sent*, which is the thing a preview should show.
+  */
   const copyForEmail = async () => {
-    const ok = await copyRenderedEmail(emailHtml);
+    const ok = await copyRenderedEmail(
+      generateEmailHtml(template, { fluid: true })
+    );
     setCopyState(ok ? 'copied' : 'failed');
   };
 
@@ -111,7 +123,7 @@ export const PreviewOverlay: React.FC = () => {
 
         <button
           type="button"
-          onClick={openInNewTab}
+          onClick={() => openInNewTab()}
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-700"
         >
           <ExternalLink className="h-4 w-4" />

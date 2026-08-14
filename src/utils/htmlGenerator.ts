@@ -258,6 +258,52 @@ export interface RenderOptions {
    * not email HTML.
    */
   editable?: boolean;
+  /**
+   * Export-only. Emit a row's columns as `max-width`-capped inline-block
+   * `<div>`s rather than `<td>`s, so they reflow on a phone **without** the
+   * `<head>` media query — see `renderFluidRow`.
+   *
+   * This exists for one destination: markup pasted into a Gmail compose
+   * window, which is stripped of `<head>` and every `<style>` block on the way
+   * in. The ordinary export keeps the table layout, which is better markup
+   * wherever the stylesheet actually survives.
+   */
+  fluid?: boolean;
+  /**
+   * Fluid only. The px width available to this block — what's left of the
+   * email's content column once every container above it has taken its padding,
+   * borders and margins.
+   *
+   * A `max-width` is what makes an inline-block wrap, and a percentage never
+   * wraps, so the fluid path has to know real pixels. Nothing else reads it:
+   * every other box in the generator is `width:100%` and doesn't care.
+   */
+  width?: number;
+}
+
+/**
+ * The content width to assume when the fluid path is reached without one.
+ *
+ * `generateEmailHtml` always seeds `opts.width`, so this only covers a caller
+ * that renders a subtree on its own — and 600px is the default `settings.width`.
+ */
+const FLUID_FALLBACK_WIDTH = 600;
+
+/**
+ * The same options with `inset` px taken off the available width.
+ *
+ * Returns `opts` untouched outside fluid mode, so the ordinary export and the
+ * canvas never allocate an object they have no use for.
+ */
+function narrow(
+  opts: RenderOptions | undefined,
+  inset: number
+): RenderOptions | undefined {
+  if (!opts?.fluid || inset <= 0) return opts;
+  return {
+    ...opts,
+    width: Math.max(1, (opts.width ?? FLUID_FALLBACK_WIDTH) - inset),
+  };
 }
 
 /**
@@ -505,6 +551,304 @@ function isBareColumn(column: ColumnElement): boolean {
   );
 }
 
+/**
+ * Undoes the `font-size:0` the fluid wrapper carries.
+ *
+ * That zero is only there to swallow the whitespace between two inline-blocks,
+ * which would otherwise be a space wide enough to push the last column onto its
+ * own line. 16px is what the container table already states, so resetting to it
+ * changes nothing a block inherits.
+ */
+const FLUID_TEXT_RESET = 'font-size:16px;';
+
+/**
+ * The whole px each column gets, once the row's own box and the gaps are paid
+ * for. They total exactly the width available, which is the point of the
+ * function: the shares are what Outlook's ghost cells are sized in, and what
+ * `fluidTrack` turns into the percentages every other client lays out from, so
+ * a share rounded *up* anywhere is a row whose tracks total more than the line.
+ */
+function fluidShares(
+  children: EmailElement[],
+  gap: number,
+  available: number
+): number[] {
+  const n = children.length;
+  const forColumns = Math.max(n, available - gap * (n - 1));
+
+  /*
+    Normalised rather than read straight, because a hand-edited project file can
+    hold widths that don't total 100. The table layout renormalises those for
+    free; pixels don't.
+  */
+  const raw = columnWidths(children);
+  const total = raw.reduce((sum, w) => sum + w, 0) || 1;
+
+  // Floored everywhere, then the remainder to the last column — `evenWidths`
+  // splits the percentages the same way, and for the same reason.
+  const px = raw.map((w) => Math.max(1, Math.floor((w / total) * forColumns)));
+  const used = px.reduce((sum, w) => sum + w, 0);
+  px[n - 1] = Math.max(1, px[n - 1] + (forColumns - used));
+  return px;
+}
+
+/**
+ * How far under its design width a row is allowed to be squeezed before it
+ * stacks, in px.
+ *
+ * The switch below is a *hard* threshold — a hair either side of it is a
+ * different layout — so it needs a little hysteresis. Some clients inset the
+ * message body by a pixel or two of their own, and a desktop layout that
+ * collapsed to a single column because the card came out 599px wide would be a
+ * far worse bug than the one this whole path exists to fix. Below the tolerance
+ * the columns simply shrink: they're stated as percentages, so a container a
+ * few px short still holds them side by side.
+ */
+const FLUID_STACK_TOLERANCE = 8;
+
+/** A px share of `line`, as a percentage floored so a row's tracks total ≤100. */
+const fluidPct = (px: number, line: number): string =>
+  `${(Math.floor((Math.max(0, px) / Math.max(1, line)) * 10000) / 100).toFixed(
+    2
+  )}%`;
+
+/**
+ * One track of a fluid row — a column or a gap — sized without a media query.
+ *
+ * This is the whole mobile layout of the paste build, and it is four
+ * declarations doing what `@media` does elsewhere. `100%` inside `calc` is the
+ * *container's* width, and the used width of a box is its `width` clamped
+ * between `min-width` and `max-width`, so the calc is a switch the client
+ * evaluates against the space it actually has:
+ *
+ * - container ≥ the breakpoint (a desktop): `breakpoint - 100%` is zero or
+ *   negative, `width` clamps to 0, and `min-width` — the track's own share —
+ *   wins. The columns sit side by side at the proportions the table build
+ *   gives them.
+ * - container < the breakpoint (a phone): the difference is positive, ×999
+ *   makes it wider than any screen, and `max-width:100%` clamps it back to the
+ *   full width of the line. Every column fills the line, so two or three
+ *   columns become one column, stacked — and a gap becomes the vertical
+ *   gutter between them.
+ *
+ * The plain `width:100%` before the calc is the fallback for a client that
+ * drops the declaration it can't parse — **and Gmail is that client**, which is
+ * the one that matters here, since this build exists to be pasted into it. So
+ * the fallback is the *stacked* layout, not the side-by-side one: a Gmail
+ * reader gets full-width columns at every width. Side by side would have been
+ * the other choice, and it is the wrong one — Gmail's compose sanitizer takes
+ * `display:inline-block` off these divs as well, so its columns stack whatever
+ * width they're given, and a share would only make them stack at half the
+ * screen. Outlook never gets this far; it reads the ghost cells.
+ *
+ * Percentages for the share rather than the px it's computed in, because
+ * `min-width` is a *floor*: a px floor is one a narrow enough screen can't
+ * honour, and the column would then be wider than the phone. A percentage
+ * cannot overflow.
+ */
+function fluidTrack(share: number, line: number): string {
+  const pct = fluidPct(share, line);
+  const breakpoint = Math.max(1, Math.round(line) - FLUID_STACK_TOLERANCE);
+  return `width:100%; width:calc((${breakpoint}px - 100%) * 999); min-width:${pct}; max-width:100%;`;
+}
+
+/**
+ * One column of a fluid row: an inline-block `<div>` sized by `fluidTrack`.
+ *
+ * That is where the layout lives — its share of the line on a container wide
+ * enough for the row, the whole line on one that isn't — and it happens in the
+ * client's own layout, with no stylesheet involved.
+ *
+ * The div carries *only* what makes it a column. Everything that makes it a
+ * box — padding, border, fill, radius, alignment — goes on a `<td>` inside it,
+ * for the reason it goes on a `<td>` in `columnCell`: that is the box Outlook's
+ * Word engine pads and paints reliably. Keeping it off the div matters twice
+ * over here, because `max-width` caps the *content* box, so padding on the div
+ * would push the column past its share and wrap the row a column early.
+ */
+function fluidColumn(
+  child: EmailElement,
+  share: number,
+  line: number,
+  settings: EmailSettings,
+  opts?: RenderOptions
+): string {
+  const column = child.type === 'column' ? child : null;
+  const valign = column?.verticalAlign ?? 'top';
+  const bg =
+    column?.bgColor && column.bgColor !== 'transparent' ? column.bgColor : '';
+
+  const borders = column ? borderStyle(column).trim() : '';
+  const b = column ? blockBorder(column) : null;
+  const m = column ? blockMargin(column) : ZERO_SIDES;
+
+  const box = [
+    column
+      ? `padding:${column.paddingTop}px ${column.paddingRight}px ${column.paddingBottom}px ${column.paddingLeft}px;`
+      : '',
+    borders,
+    bg ? `background-color:${bg};` : '',
+    column ? radiusStyle(column).trim() : '',
+    alignStyle(column?.textAlign).trim(),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  // Everything between the share and the blocks: the margin's own inset, then
+  // the box's. A row inside this column has to know what's actually left.
+  const inset =
+    m.left +
+    m.right +
+    (column ? column.paddingLeft + column.paddingRight : 0) +
+    (b ? b.left + b.right : 0);
+
+  /*
+    A column narrows what's inside it from its *share*, not from the line the
+    row was given: the share is this div's whole width. `narrow` takes the box
+    off whatever it's handed, so handing it the row's width would tell a nested
+    row it has the space of the entire row — and a nested row that thinks it is
+    wider than its container lays itself out as one that is already stacked.
+  */
+  const within = opts?.fluid
+    ? narrow({ ...opts, width: share }, inset)
+    : narrow(opts, inset);
+
+  const body =
+    renderElementToHtml(child, settings, within).trim() ||
+    '<div style="font-size:1px; line-height:1px;">&nbsp;</div>';
+
+  const boxed = box
+    ? `<table width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td${bg ? ` bgcolor="${bg}"` : ''} style="${box}">
+${body}
+          </td>
+        </tr>
+      </table>`
+    : body;
+
+  /*
+    A margin is a `<div>` of its own rather than padding on the column, and for
+    the same reason the box is: `width:100%` is a content width, so padding on
+    the same element would make the column wider than the share it was given.
+    This one is auto-width, so its padding insets rather than adds.
+  */
+  const inner =
+    m.top || m.right || m.bottom || m.left
+      ? `<div style="${paddingShorthand(m)}">
+${boxed}
+      </div>`
+      : boxed;
+
+  /*
+    Outlook's Word engine has no inline-block, so it would stack every column
+    full width. The ghost cells give it the table it does understand; every
+    other client discards the conditional comments unread.
+  */
+  return `<!--[if mso]><td width="${share}" valign="${valign}"><![endif]-->
+    <div class="${COLUMN_CLASS}" style="display:inline-block; ${fluidTrack(
+    share,
+    line
+  )} vertical-align:${valign}; ${FLUID_TEXT_RESET}">
+${inner}
+    </div>
+    <!--[if mso]></td><![endif]-->`;
+}
+
+/**
+ * The gutter between two fluid columns — the inline-block twin of
+ * `columnGapCell`, and there for the same reason: a gap made of padding on the
+ * columns would inset the row's outer edges too.
+ *
+ * It is a `fluidTrack` like the columns are, so once the row stacks it goes
+ * full width and lands *between* two stacked columns, where the `<div>` it
+ * holds makes it the vertical gutter — the same thing `.nl-gap` does where the
+ * `<head>` stylesheet survives. Sized any other way it would stay `gap` px wide
+ * and end up wherever the column before it left room, which is no use as a
+ * vertical gap at all.
+ */
+function fluidGapDiv(gap: number, line: number): string {
+  return `    <div class="${COLUMN_GAP_CLASS}" style="display:inline-block; ${fluidTrack(
+    gap,
+    line
+  )} font-size:0; line-height:0;"><div style="height:${gap}px; line-height:${gap}px; font-size:1px;">&nbsp;</div></div>`;
+}
+
+/**
+ * A row whose columns reflow without a media query.
+ *
+ * Chosen by `renderRow` only when `opts.fluid` is set *and* the row stacks —
+ * a row whose author opted out of stacking keeps the table, since a table is
+ * the thing that reliably never wraps.
+ *
+ * The row's own box goes on a wrapper cell whenever it has one, rather than on
+ * the wrapper div: `bgcolor`, padding and a border all want a `<td>` for
+ * Outlook, and the div is already carrying the inline-block layout.
+ */
+function renderFluidRow(
+  element: RowElement,
+  settings: EmailSettings,
+  opts?: RenderOptions
+): string {
+  const children = element.childElements || [];
+  const gap = Math.max(0, element.gap || 0);
+  const padding = paddingStyle(element);
+
+  const p = blockPadding(element);
+  const b = blockBorder(element);
+  const available =
+    (opts?.width ?? FLUID_FALLBACK_WIDTH) - p.left - p.right - b.left - b.right;
+  const shares = fluidShares(children, gap, available);
+
+  /*
+    The line the columns share: the width this row was laid out for, which the
+    shares and the gaps total exactly. Every track is a percentage of it, and
+    it's the width `fluidTrack` compares the client's actual container against
+    to decide whether the row is side by side or stacked.
+  */
+  const line = Math.max(1, available);
+
+  const cells: string[] = [];
+  children.forEach((child, i) => {
+    if (i > 0 && gap > 0) cells.push(fluidGapDiv(gap, line));
+    cells.push(fluidColumn(child, shares[i], line, settings, opts));
+  });
+
+  const margins = tableMargin(element);
+  const wrapped =
+    !!padding ||
+    !!bgStyle(element) ||
+    !!borderStyle(element) ||
+    !!radiusStyle(element);
+
+  /*
+    The `<td>`s `fluidColumn` and `fluidGapDiv` open need the table they belong
+    to, and it has to be conditional too — every other client would see a real
+    table and lose the wrapping the whole path is for. Inside the wrapper div
+    rather than around it, so Outlook reads div › table › tr › td › div and the
+    row's margins stay on one box for both.
+  */
+  const strip = `<div class="${ROW_STACK_CLASS}" style="${
+    wrapped ? '' : `${margins} `
+  }font-size:0;">
+<!--[if mso]><table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0"><tr><![endif]-->
+${cells.join('\n')}
+<!--[if mso]></tr></table><![endif]-->
+</div>`;
+
+  if (!wrapped) return strip;
+
+  return `<table width="100%" border="0" cellspacing="0" cellpadding="0" style="${margins}">
+  <tr>
+    <td${bgAttr(element)} style="${padding.trim()}${bgStyle(element)}${borderStyle(
+    element
+  )}${radiusStyle(element)}">
+${strip}
+    </td>
+  </tr>
+</table>`;
+}
+
 function renderRow(
   element: RowElement,
   settings: EmailSettings,
@@ -549,6 +893,17 @@ function renderRow(
     return (only.childElements || [])
       .map((child) => renderElementToHtml(child, settings, opts))
       .join('\n\n');
+  }
+
+  /*
+    A row that stacks is the one thing in the export that needs the `<head>`
+    stylesheet to be responsive, so it's the one thing the fluid path replaces.
+    A row that opted *out* of stacking keeps the table either way — a table is
+    what reliably never wraps, and there is no inline-block arrangement that
+    promises the same.
+  */
+  if (opts?.fluid && element.stackOnMobile !== false) {
+    return renderFluidRow(element, settings, opts);
   }
 
   const gap = Math.max(0, element.gap || 0);
@@ -641,8 +996,19 @@ export function renderElementToHtml(
     preview disagree with the email. Blocks that carry their margins on their
     own tag come back untouched.
   */
+  /*
+    The wrapper that margin builds insets whatever it holds, so in fluid mode
+    the block inside has to be rendered knowing it. A `column` is skipped for
+    the same reason `applyOuterMargin` skips it: its margin is applied by
+    `fluidColumn`, which has already taken it off the share.
+  */
+  const m = blockMargin(element);
   const html = applyOuterMargin(
-    renderElementBody(element, settings, opts),
+    renderElementBody(
+      element,
+      settings,
+      element.type === 'column' ? opts : narrow(opts, m.left + m.right)
+    ),
     element
   );
   /*
@@ -865,8 +1231,17 @@ ${rows}
     }
 
     case 'section': {
+      // Fluid only, and a no-op in the early-return case below — a section that
+      // emits nothing of its own has no padding or border to take off.
+      const childOpts = narrow(
+        opts,
+        element.paddingLeft +
+          element.paddingRight +
+          element.borderLeftWidth +
+          element.borderRightWidth
+      );
       const children = (element.childElements || []).map((child) =>
-        renderElementToHtml(child, settings, opts)
+        renderElementToHtml(child, settings, childOpts)
       );
 
       const hasBorder =
@@ -1113,12 +1488,34 @@ function usesStackedColumns(elements: EmailElement[]): boolean {
   );
 }
 
-export function generateEmailHtml(template: NewsletterTemplate): string {
+export interface ExportOptions {
+  /**
+   * Emit markup that reflows on a phone without the `<head>` stylesheet — for
+   * pasting into a Gmail compose window, which strips it. See `RenderOptions.fluid`.
+   *
+   * The stylesheet is still written: it costs nothing where it's discarded, and
+   * where it survives its rules are strictly better than what the inline markup
+   * can promise on its own — full-width stacked columns rather than columns at
+   * their desktop width, and a real gap between them.
+   */
+  fluid?: boolean;
+}
+
+export function generateEmailHtml(
+  template: NewsletterTemplate,
+  exportOpts?: ExportOptions
+): string {
   const { settings, elements } = template;
   const fontFamily = cssFontFamily(settings.fontFamily);
+  const fluid = !!exportOpts?.fluid;
+
+  // Seeded once, here: the content column, once the card's own padding is off.
+  const opts: RenderOptions | undefined = fluid
+    ? { fluid: true, width: Math.max(1, settings.width - settings.padding * 2) }
+    : undefined;
 
   const elementsHtml = elements
-    .map((el) => renderElementToHtml(el, settings))
+    .map((el) => renderElementToHtml(el, settings, opts))
     .join('\n\n');
 
   /*
@@ -1165,7 +1562,15 @@ export function generateEmailHtml(template: NewsletterTemplate): string {
     <tr>
     <td align="center" valign="top" width="${settings.width}">
     <![endif]-->
-    <table class="email-container" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 0 auto; width: ${settings.width}px; max-width: ${settings.width}px; background-color: ${settings.cardBgColor}; color: ${settings.textColor}; font-family: ${fontFamily}; font-size: 16px;">
+    <table class="email-container" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 0 auto; width: ${
+      /*
+        The fixed px width is what the media query exists to override, so in
+        fluid mode the card states the fluid value to begin with and the rule
+        becomes a no-op rather than a requirement. Outlook is unaffected either
+        way: the ghost table above already pins it to `settings.width`.
+      */
+      fluid ? '100%' : `${settings.width}px`
+    }; max-width: ${settings.width}px; background-color: ${settings.cardBgColor}; color: ${settings.textColor}; font-family: ${fontFamily}; font-size: 16px;">
       <tbody>
         <tr>
           <td class="responsive-td" style="padding: ${settings.padding}px;">

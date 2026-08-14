@@ -97,8 +97,9 @@ export interface DesignerValue {
   saveTemplateFile: () => void;
   openTemplateFile: (file: File) => Promise<void>;
   importRawHtml: (html: string) => void;
-  downloadHtml: () => void;
-  openInNewTab: () => void;
+  /** Both default to the ordinary export — pass markup to save or preview another build. */
+  downloadHtml: (html?: string) => void;
+  openInNewTab: (html?: string) => void;
   openFileName: string | null;
   saveStatus: SaveStatus;
 
@@ -867,21 +868,30 @@ export const DesignerProvider: React.FC<{ children: React.ReactNode }> = ({
     [resolveAddParent, commitElements, select]
   );
 
-  const downloadHtml = useCallback(() => {
-    const slug =
-      template.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'newsletter';
-    downloadBlob(
-      new Blob([emailHtml], { type: 'text/html;charset=utf-8' }),
-      `${slug}.html`
-    );
-  }, [emailHtml, template.name]);
+  /*
+    Both take the markup rather than reading `emailHtml` themselves, so the
+    Export modal can hand them whichever build it is showing — the ordinary one
+    or the paste-safe one. Defaulted, because every other caller wants the
+    ordinary export and shouldn't have to say so.
+  */
+  const downloadHtml = useCallback(
+    (html: string = emailHtml) => {
+      const slug =
+        template.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'newsletter';
+      downloadBlob(
+        new Blob([html], { type: 'text/html;charset=utf-8' }),
+        `${slug}.html`
+      );
+    },
+    [emailHtml, template.name]
+  );
 
-  const openInNewTab = useCallback(() => {
+  const openInNewTab = useCallback((html: string = emailHtml) => {
     const url = URL.createObjectURL(
-      new Blob([emailHtml], { type: 'text/html;charset=utf-8' })
+      new Blob([html], { type: 'text/html;charset=utf-8' })
     );
     const win = window.open(url, '_blank');
     if (!win) {

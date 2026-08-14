@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <title>Privacy Policy — HTML Newsletter Designer for Gmail</title>
     <meta
       name="description"
@@ -33,6 +33,9 @@
         --accent-500: #944dbc;
         --accent-600: #7d3ba3;
         --accent-700: #652e84;
+
+        /* The logo's own tile — see `--color-brand` in src/index.css. */
+        --brand: #632092;
 
         --slate-50: #f8fafc;
         --slate-200: #e2e8f0;
@@ -78,13 +81,12 @@
         width: 56px;
         height: 56px;
         flex: 0 0 auto;
-        background: var(--accent-500);
-        color: #ffffff;
+        background: var(--brand);
       }
 
-      .mark svg {
-        width: 24px;
-        height: 24px;
+      .mark img {
+        width: 36px;
+        height: 36px;
       }
 
       .wordmark {
@@ -240,18 +242,8 @@
   <body>
     <header class="topbar">
       <div class="mark" aria-hidden="true">
-        <!-- lucide `mail`, the same glyph the app bar uses. -->
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <rect width="20" height="16" x="2" y="4" rx="2" />
-          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-        </svg>
+        <!-- The same mark the app bar wears. -->
+        <img src="/logo.svg" alt="" />
       </div>
       <span class="wordmark">HTML Newsletter Designer</span>
       <a class="back" href="/">Open the designer</a>

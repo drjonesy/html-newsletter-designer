@@ -5,10 +5,10 @@
     The back card is a path rather than a <rect> so the notch the front card
     sits in is a real hole: on a <rect> it would have to be a mask or a
     same-coloured cut-out, and a cut-out only disappears against the one
-    background it was painted to match. This way the whole mark is the brand purple
+    background it was painted to match. This way the whole mark is white
     on transparency and the tile behind it can be any colour.
   -->
-  <g fill="#632092" fill-rule="evenodd">
+  <g fill="#ffffff" fill-rule="evenodd">
     <path d="M49 13H94A5 5 0 0 1 99 18V99A5 5 0 0 1 94 104H84V28A4 4 0 0 0 80 24H44V18A5 5 0 0 1 49 13Z" />
     <rect x="29" y="29" width="48" height="86" rx="4" />
   </g>

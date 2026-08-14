@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Check, FilePlus2, Loader2, Mail, MailPlus } from 'lucide-react';
+import { Check, FilePlus2, Loader2, MailPlus } from 'lucide-react';
 import { useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
 import { TEMPLATE_FILE_EXTENSION } from '../../utils/templateFile';
@@ -12,6 +12,14 @@ import { insertIntoGmail, isExtensionHost } from '../../utils/extensionHost';
   rather than on every render, and the hosted app never renders the button.
 */
 const IN_EXTENSION = isExtensionHost();
+
+/*
+  `public/` is copied verbatim and never processed, so this can't be an import.
+  It has to go through BASE_URL rather than a bare `/logo.svg`: the extension
+  build is `--base=./` and its page lives at `chrome-extension://…/app/`, where
+  an absolute path would resolve above the copied assets and 404.
+*/
+const LOGO_URL = `${import.meta.env.BASE_URL}logo.svg`;
 
 /**
  * The application bar: brand, newsletter name, save state, and the two actions
@@ -43,7 +51,15 @@ export const TopBar: React.FC = () => {
   async function handleInsert() {
     setInserting(true);
     setInsertNote(null);
-    const outcome = await insertIntoGmail(generateEmailHtml(template));
+    /*
+      Always the paste build. This lands in a compose window, which keeps the
+      body markup and drops `<head>` with every `<style>` block in it — so the
+      responsive layout has to be stated on the blocks themselves or the message
+      arrives fixed at `settings.width` and a phone just scales it down.
+    */
+    const outcome = await insertIntoGmail(
+      generateEmailHtml(template, { fluid: true })
+    );
     setInserting(false);
     setInsertNote(
       outcome.status === 'ok'
@@ -59,8 +75,8 @@ export const TopBar: React.FC = () => {
 
   return (
     <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white pr-4">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center bg-accent-500 text-white">
-        <Mail className="h-6 w-6" />
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center bg-brand">
+        <img src={LOGO_URL} alt="" className="h-9 w-9" />
       </div>
 
       <div className="flex min-w-0 items-center gap-2">
