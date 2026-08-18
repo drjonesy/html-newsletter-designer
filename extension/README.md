@@ -1,8 +1,9 @@
-# Newsletter Designer for Gmail
+# Newsletter Designer for Gmail and Outlook
 
-A Chrome extension that puts a **Design newsletter** button in Gmail's compose
-window. Click it, the designer opens in a tab, you build the newsletter, and
-**Insert into Gmail** drops it into the draft you came from.
+A Chrome extension that puts a **Design newsletter** button in the compose
+window of Gmail and Outlook Web. Click it, the designer opens in a tab, you
+build the newsletter, and **Insert into Gmail** / **Insert into Outlook** drops
+it into the draft you came from.
 
 The whole app ships inside the extension. There is no server, no account, and no
 network call — the same property the web app has, kept.
@@ -22,29 +23,37 @@ you've run the build at least once.
 
 ## Using it
 
-1. Gmail → **Compose**
+1. Gmail → **Compose**, or Outlook Web → **New mail**
 2. **Design newsletter**, next to Send
 3. Build it. This is the full designer — blocks, sections, theme, preview
-4. **Insert into Gmail**, top right
+4. **Insert into …**, top right — it names whichever client you came from
 
-Gmail comes back to the front and the newsletter lands at the top of the draft,
-above your signature. The designer tab stays open, so you can adjust and insert
-again.
+That tab comes back to the front and the newsletter lands at the top of the
+draft, above your signature. The designer tab stays open, so you can adjust and
+insert again.
 
 The toolbar icon also opens the designer on its own, with no draft attached —
 useful for building something now and sending it later.
 
+### Which clients
+
+Gmail on `mail.google.com`, and Outlook Web on `outlook.office.com`,
+`outlook.office365.com`, `outlook.live.com`, `outlook.com` and the newer
+`outlook.cloud.microsoft`. The desktop Outlook app is a different product with
+no extension surface at all — export the HTML for that.
+
 ## How the two halves talk
 
 They can't reach each other directly, so the service worker sits between them
-and remembers which designer tab belongs to which Gmail tab.
+and remembers which designer tab belongs to which mail tab — and which client
+that tab is, so the app can name its own button.
 
 ```
 compose button ──▶ background.js ──▶ opens designer tab, records the pairing
                                           │
                             (you design for a while)
                                           ▼
-Insert into Gmail ──▶ background.js ──▶ focuses the Gmail tab ──▶ content.js pastes
+Insert into …  ──▶ background.js ──▶ focuses the mail tab ──▶ content.js pastes
 ```
 
 The pairing lives in `chrome.storage.session`, not a variable — MV3 kills an idle
@@ -53,12 +62,13 @@ empty by the time you finished designing.
 
 ## Why it pastes instead of writing HTML
 
-Your uploaded images live in the template as `data:` URIs. Gmail's own paste
-handler uploads those and rewrites `src` to a hosted URL; writing `innerHTML`
+Your uploaded images live in the template as `data:` URIs. The client's own
+paste handler takes those off your hands — Gmail uploads them and rewrites `src`
+to a hosted URL, Outlook turns them into inline attachments. Writing `innerHTML`
 skips the handler, and a `data:` image sent as-is gets dropped by most clients.
 
 So the designer tab loads the clipboard — it has focus and a user gesture, which
-the background Gmail tab does not — and the content script only has to paste.
+the backgrounded mail tab does not — and the content script only has to paste.
 If the paste is refused, it writes the markup in directly and **tells you**, so a
 silent image failure isn't possible.
 
@@ -66,14 +76,15 @@ silent image failure isn't possible.
 
 **Mobile stacking and per-device visibility don't survive.** Both are driven by
 `<head>` media queries (`nl-stack`, `nl-hide-sm` / `nl-only-sm`), and a compose
-window has no `<head>` to paste into — Gmail strips head CSS regardless. Columns
-will stay side by side on phones. This is inherent to sending from Gmail at all,
-including copy-and-paste by hand; it isn't specific to this extension. Use
-**Export HTML** and a real ESP when those matter.
+window has no `<head>` to paste into — Gmail and Outlook Web both strip head CSS
+regardless. Columns will stay side by side on phones. This is inherent to
+sending from a compose window at all, including copy-and-paste by hand; it isn't
+specific to this extension. Use **Export HTML** and a real ESP when those matter.
 
-**Gmail is not a bulk sender.** 500 messages/day on a consumer account, 2000 on
-Workspace, and no unsubscribe handling. This is built for writing one good email,
-not for running a mailing list.
+**Neither client is a bulk sender.** Gmail allows 500 messages/day on a consumer
+account and 2000 on Workspace; Outlook's limits are comparable, and neither
+handles unsubscribes. This is built for writing one good email, not for running
+a mailing list.
 
 ## How the web version knows this exists
 
@@ -110,9 +121,9 @@ file is the same format on both sides.
 
 | File | Role |
 | --- | --- |
-| `manifest.json` | MV3. Clipboard + storage permissions, Gmail host permission |
+| `manifest.json` | MV3. Clipboard + storage permissions, Gmail and Outlook host permissions |
 | `background.js` | Service worker: pairs the tabs, relays the email |
-| `content.js` | The compose button, and the insertion |
+| `content.js` | The compose button, and the insertion. `HOSTS` holds everything that differs per client |
 | `content.css` | Styling for that button, scoped to one class |
 | `detect.js` | Announces the extension to the designer's web build |
 | `app/` | The built designer — generated by `pnpm ext:build` |

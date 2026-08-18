@@ -157,7 +157,8 @@ const Chip: React.FC<{
 /**
  * Optional extras that bolt onto the designer without changing the core.
  *
- * One is real — the Chrome extension, which hosts this same build inside Gmail.
+ * One is real — the Chrome extension, which hosts this same build alongside
+ * Gmail and Outlook Web.
  * Anything that lands here has to keep the app's bargain: it runs entirely in
  * the browser, and an add-on isn't a reason to grow a backend. The extension
  * qualifies because `chrome.runtime` messaging is local to the browser; nothing
@@ -181,7 +182,7 @@ export const AddonsPanel: React.FC = () => {
         <FieldGroup>
           <AddonCard
             icon={<Chrome className="h-5 w-5" />}
-            title="Gmail (Chrome extension)"
+            title="Gmail &amp; Outlook (Chrome extension)"
             chips={
               /*
                 Nothing at all until detection answers. A wrong chip that
@@ -224,8 +225,9 @@ export const AddonsPanel: React.FC = () => {
             }
             summary={
               <>
-                Adds a <strong>Design newsletter</strong> button to Gmail's
-                compose window, and drops the finished email into your draft.
+                Adds a <strong>Design newsletter</strong> button to the compose
+                window in Gmail and Outlook Web, and drops the finished email
+                into your draft.
               </>
             }
             /*
@@ -260,21 +262,23 @@ export const AddonsPanel: React.FC = () => {
             {ext?.hosted ? (
               <p className="mt-3 text-xs leading-relaxed text-slate-600">
                 You're using it now — this designer is running inside the
-                extension. Open Gmail, hit Compose, then{' '}
+                extension. Open Gmail or Outlook, start a new message, then{' '}
                 <strong>Design newsletter</strong> to pair this tab with a draft.
               </p>
             ) : ext?.installed ? (
               <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                Installed, but this tab is the web version — so{' '}
-                <strong>Insert into Gmail</strong> isn't available here. Open
-                Gmail, hit Compose, then <strong>Design newsletter</strong> to
-                get a designer tab that's paired with a draft.
+                Installed, but this tab is the web version — so the{' '}
+                <strong>Insert</strong> button isn't available here. Open Gmail
+                or Outlook, start a new message, then{' '}
+                <strong>Design newsletter</strong> to get a designer tab that's
+                paired with a draft.
               </p>
             ) : (
               <>
                 <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                  Install it from the Chrome Web Store, then open Gmail, hit
-                  Compose, and click <strong>Design newsletter</strong>.
+                  Install it from the Chrome Web Store, then open Gmail or
+                  Outlook, start a new message, and click{' '}
+                  <strong>Design newsletter</strong>.
                 </p>
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">
                   Already installed and still seeing this? The extension only
@@ -303,8 +307,9 @@ export const AddonsPanel: React.FC = () => {
               is where they'd find out in time for that to matter.
             */}
             <p className="mt-3 border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
-              Sending from Gmail can't carry{' '}
-              <code className={code}>&lt;head&gt;</code> CSS, so{' '}
+              A compose window can't carry{' '}
+              <code className={code}>&lt;head&gt;</code> CSS — Gmail and Outlook
+              Web both strip it — so{' '}
               <strong>stack on mobile</strong> and{' '}
               <strong>per-device visibility</strong> won't apply — columns stay
               side by side on phones. That's true of copy-and-paste too. Use{' '}

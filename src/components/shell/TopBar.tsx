@@ -1,10 +1,14 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, FilePlus2, Loader2, MailPlus } from 'lucide-react';
 import { useDesigner } from '../../state/DesignerContext';
 import { InlineRename } from '../controls';
 import { TEMPLATE_FILE_EXTENSION } from '../../utils/templateFile';
 import { generateEmailHtml } from '../../utils/htmlGenerator';
-import { insertIntoGmail, isExtensionHost } from '../../utils/extensionHost';
+import {
+  insertIntoMailHost,
+  isExtensionHost,
+  pairedMailHostLabel,
+} from '../../utils/extensionHost';
 
 /*
   Whether this build is a page inside the Chrome extension. Fixed for the life
@@ -48,6 +52,25 @@ export const TopBar: React.FC = () => {
   const [inserting, setInserting] = useState(false);
   const [insertNote, setInsertNote] = useState<string | null>(null);
 
+  /*
+    Which client's draft is waiting, so the button can say so. Asked once on
+    mount: the pairing is made before this tab is opened and never changes for
+    its lifetime. Null until the worker answers, and null forever for a tab
+    opened from the toolbar icon with no draft behind it — hence the neutral
+    fallback on the label rather than a guess at Gmail.
+  */
+  const [hostLabel, setHostLabel] = useState<string | null>(null);
+  useEffect(() => {
+    if (!IN_EXTENSION) return;
+    let live = true;
+    pairedMailHostLabel().then((label) => {
+      if (live) setHostLabel(label);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   async function handleInsert() {
     setInserting(true);
     setInsertNote(null);
@@ -57,7 +80,7 @@ export const TopBar: React.FC = () => {
       responsive layout has to be stated on the blocks themselves or the message
       arrives fixed at `settings.width` and a phone just scales it down.
     */
-    const outcome = await insertIntoGmail(
+    const outcome = await insertIntoMailHost(
       generateEmailHtml(template, { fluid: true })
     );
     setInserting(false);
@@ -66,8 +89,8 @@ export const TopBar: React.FC = () => {
         ? outcome.method === 'paste'
           ? 'Inserted into your draft.'
           : // Worth naming rather than reporting a plain success: this is the
-            // path that ships `data:` images as-is, and Gmail drops those.
-            'Inserted, but Gmail refused the paste — uploaded images may not survive.'
+            // path that ships `data:` images as-is, and most clients drop those.
+            `Inserted, but ${hostLabel ?? 'your email client'} refused the paste — uploaded images may not survive.`
         : outcome.error
     );
     window.setTimeout(() => setInsertNote(null), 6000);
@@ -162,7 +185,7 @@ export const TopBar: React.FC = () => {
             ) : (
               <MailPlus className="h-4 w-4" />
             )}
-            Insert into Gmail
+            Insert into {hostLabel ?? 'email'}
           </button>
         )}
       </div>

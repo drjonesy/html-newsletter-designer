@@ -3,8 +3,9 @@
  * ordinary web page.
  *
  * The extension bundles this same build and opens it in a tab from a button in
- * Gmail's compose window. When it's running there — and *only* there — the app
- * offers one extra action: put the finished email into the draft that opened it.
+ * a Gmail or Outlook Web compose window. When it's running there — and *only*
+ * there — the app offers one extra action: put the finished email into the
+ * draft that opened it.
  *
  * Everything here is feature-detected and returns a plain "not available" when
  * the API isn't there, so the hosted app is untouched. Nothing in this module
@@ -138,24 +139,24 @@ export type InsertOutcome =
   | { status: 'error'; error: string };
 
 /**
- * Hand the finished email to the Gmail compose window that opened this tab.
+ * Hand the finished email to the compose window that opened this tab.
  *
- * The clipboard write happens *here*, not in the Gmail tab, and that ordering
+ * The clipboard write happens *here*, not in the mail tab, and that ordering
  * is the whole trick. Writing to the clipboard needs a focused document and a
- * user gesture, and the Gmail tab has neither while the designer is in front.
+ * user gesture, and the mail tab has neither while the designer is in front.
  * So this tab — which has both, because the user just clicked the button —
- * loads the clipboard, and the Gmail tab only has to paste.
+ * loads the clipboard, and the mail tab only has to paste.
  *
- * Pasting through Gmail's own handler is what makes uploaded images survive:
- * it uploads them and rewrites `src` to a hosted URL, exactly as it does for a
- * hand-paste. Writing the markup in directly skips that, so a `data:` image
- * would go out as a `data:` image and most clients would drop it. The
- * background worker falls back to that only if the paste is refused, and says
- * which one it used.
+ * Pasting through the client's own handler is what makes uploaded images
+ * survive: Gmail uploads them and rewrites `src` to a hosted URL, Outlook turns
+ * them into inline attachments, each exactly as it does for a hand-paste.
+ * Writing the markup in directly skips that, so a `data:` image would go out as
+ * a `data:` image and most clients would drop it. The background worker falls
+ * back to that only if the paste is refused, and says which one it used.
  *
  * Must be called from a user gesture.
  */
-export async function insertIntoGmail(
+export async function insertIntoMailHost(
   documentHtml: string
 ): Promise<InsertOutcome> {
   const api = runtime();
@@ -180,7 +181,7 @@ export async function insertIntoGmail(
 
   try {
     const reply = (await api.sendMessage({
-      type: 'insert-into-gmail',
+      type: 'insert-into-mail',
       html: body,
     })) as InsertOutcome | undefined;
     return reply ?? { status: 'error', error: 'No reply from the extension.' };
@@ -197,4 +198,24 @@ function plainTextFrom(html: string): string {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Which mail client opened this designer tab: `'Gmail'`, `'Outlook'`, or null.
+ *
+ * Only ever used to name the insert button honestly. Null is a real answer
+ * rather than a failure — the toolbar icon opens the designer with no draft
+ * behind it, and there is nothing to name.
+ */
+export async function pairedMailHostLabel(): Promise<string | null> {
+  const api = runtime();
+  if (!api) return null;
+  try {
+    const reply = (await api.sendMessage({ type: 'paired-host' })) as
+      | { label?: string }
+      | undefined;
+    return reply?.label ?? null;
+  } catch {
+    return null;
+  }
 }

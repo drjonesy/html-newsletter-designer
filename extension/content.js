@@ -1,12 +1,18 @@
 /**
- * The Gmail half: a button in the compose window, and the insertion that comes
- * back the other way.
+ * The mail-client half: a button in the compose window, and the insertion that
+ * comes back the other way.
  *
  * Two jobs, and they're separated by however long the user spends designing:
  *
  *   1. Put a "Design newsletter" button in every compose window
  *   2. Later, on a message from the service worker, put the finished email into
  *      whichever draft the user was last in
+ *
+ * Both jobs are the same shape in Gmail and in Outlook Web — find the drafts,
+ * mount beside Send, remember the last one focused, paste into it. What differs
+ * is only *how you recognise* those parts, so the differences are collected in
+ * `HOSTS` and everything below it is written against the resolved adapter. Add
+ * a third client by adding an entry there and a match in the manifest.
  */
 (() => {
   'use strict';
@@ -14,29 +20,88 @@
   const MOUNTED = 'data-newsletter-designer';
   const BUTTON_CLASS = 'nl-designer-btn';
 
-  /* --- Finding things in Gmail ------------------------------------------ */
+  /* --- The per-client differences --------------------------------------- */
   /*
-    Gmail's class names are obfuscated and rotate between deploys. Its ARIA
-    attributes are load-bearing for screen readers, so they change far less —
-    target those, and keep a fallback for a localised interface where the
-    English label won't match.
+    Both apps obfuscate their class names and rotate them between deploys.
+    Their ARIA attributes are load-bearing for screen readers, so they change
+    far less — target those, and keep a generic fallback for a localised
+    interface where the English label won't match.
   */
-  const BODY_SELECTORS = [
-    'div[aria-label="Message Body"][contenteditable="true"]',
-    'div[role="textbox"][contenteditable="true"][aria-multiline="true"]',
-    'div[g_editable="true"][contenteditable="true"]',
-  ];
-  const BODY_SELECTOR = BODY_SELECTORS.join(',');
+  const HOSTS = {
+    gmail: {
+      key: 'gmail',
+      label: 'Gmail',
+      bodySelectors: [
+        'div[aria-label="Message Body"][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"][aria-multiline="true"]',
+        'div[g_editable="true"][contenteditable="true"]',
+      ],
+      sendSelectors: [
+        'div[role="button"][aria-label^="Send"]',
+        'div[role="button"][data-tooltip^="Send"]',
+      ],
+      /*
+        Gmail's compose actions are laid out as a table, so the cell is the
+        natural unit to sit beside.
+      */
+      maxScopeDepth: 15,
+    },
+    outlook: {
+      key: 'outlook',
+      label: 'Outlook',
+      bodySelectors: [
+        'div[role="textbox"][contenteditable="true"][aria-label^="Message body"]',
+        'div[role="textbox"][contenteditable="true"][aria-multiline="true"]',
+        'div[contenteditable="true"][id^="editorParent"]',
+      ],
+      sendSelectors: [
+        'button[aria-label^="Send"]',
+        'button[title^="Send"]',
+        'div[role="button"][aria-label^="Send"]',
+      ],
+      /*
+        Deeper than Gmail's, because Outlook's Send lives up in the ribbon
+        rather than in a bar under the body — the nearest ancestor holding both
+        is a long way up a React tree. Walking further is safe: the climb stops
+        the moment it can see a second draft, which is the real guard.
+      */
+      maxScopeDepth: 30,
+    },
+  };
+
+  function resolveHost() {
+    const name = location.hostname;
+    if (name === 'mail.google.com') return HOSTS.gmail;
+    if (
+      name === 'outlook.com' ||
+      name.startsWith('outlook.') ||
+      name.endsWith('.outlook.com')
+    ) {
+      return HOSTS.outlook;
+    }
+    return null;
+  }
+
+  const HOST = resolveHost();
+  /*
+    Outlook is injected with `all_frames`, so this runs in every frame of the
+    page — most of which are neither a mail client nor anything with a draft in
+    it. Leaving early there costs nothing and keeps the observer off the page.
+  */
+  if (!HOST || !document.body) return;
+
+  const BODY_SELECTOR = HOST.bodySelectors.join(',');
 
   function composeBodies(root = document) {
     return root.querySelectorAll(BODY_SELECTOR);
   }
 
   function sendButtonIn(scope) {
-    return (
-      scope.querySelector('div[role="button"][aria-label^="Send"]') ||
-      scope.querySelector('div[role="button"][data-tooltip^="Send"]')
-    );
+    for (const selector of HOST.sendSelectors) {
+      const found = scope.querySelector(selector);
+      if (found) return found;
+    }
+    return null;
   }
 
   /*
@@ -46,9 +111,9 @@
     Scanning for `div[role="dialog"]` only ever found the pop-out window. A
     reply written *in* the conversation — the common case — isn't a dialog at
     all, it's part of the thread, so it never got a button. There's no one
-    container Gmail marks for both, but every compose has a body and a Send,
-    so climbing from the body to the first ancestor holding a Send finds the
-    right box in either shape.
+    container either client marks for both, but every compose has a body and a
+    Send, so climbing from the body to the first ancestor holding a Send finds
+    the right box in either shape.
 
     Tightest wins, which is what keeps two open drafts apart: the other
     draft's Send button is down a different branch, so the climb reaches this
@@ -57,11 +122,9 @@
     it can see a second draft. Giving up costs nothing: the scan runs again on
     the next mutation, by which time the button it was looking for exists.
   */
-  const MAX_SCOPE_DEPTH = 15;
-
   function composeScopeFor(body) {
     let node = body.parentElement;
-    for (let depth = 0; node && depth < MAX_SCOPE_DEPTH; depth++) {
+    for (let depth = 0; node && depth < HOST.maxScopeDepth; depth++) {
       if (node === document.body) break;
       /*
         Asked before the Send check, not after: an ancestor that can already
@@ -88,7 +151,7 @@
     (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (BODY_SELECTORS.some((selector) => target.matches(selector))) {
+      if (HOST.bodySelectors.some((selector) => target.matches(selector))) {
         lastBody = target;
       }
     },
@@ -110,22 +173,23 @@
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = BUTTON_CLASS;
+    button.className = `${BUTTON_CLASS} ${BUTTON_CLASS}--${HOST.key}`;
     button.textContent = 'Design newsletter';
     button.title = 'Open the Newsletter Designer and insert the result here';
     button.addEventListener('click', (event) => {
-      // Never let this reach Gmail — it sits next to Send.
+      // Never let this reach the client — it sits next to Send.
       event.preventDefault();
       event.stopPropagation();
       // Clicking here decides which draft the result comes back to.
       lastBody = body;
-      chrome.runtime.sendMessage({ type: 'open-designer' });
+      chrome.runtime.sendMessage({ type: 'open-designer', host: HOST.key });
     });
 
     /*
       Sit beside Send rather than floating: this is a peer of the compose
-      actions, not an overlay. The cell is the natural unit — Gmail lays that
-      row out as a table — and the parent is the fallback for when it isn't.
+      actions, not an overlay. Gmail lays that row out as a table, so the cell
+      is its natural unit; Outlook's ribbon is a flex row with no cell to find,
+      which is what the parent fallback is already for.
     */
     const anchor = send.closest('td') || send.parentElement;
     if (anchor && anchor.parentElement) {
@@ -144,10 +208,10 @@
       const scope = composeScopeFor(body);
       if (!scope) continue;
       /*
-        The attribute alone isn't enough. Gmail re-renders a compose in place —
-        minimise, pop out, switch to full screen — and takes our button with it
-        while leaving the marked container behind, so check the button is still
-        there rather than trusting the mark.
+        The attribute alone isn't enough. Both clients re-render a compose in
+        place — minimise, pop out, switch to full screen — and take our button
+        with it while leaving the marked container behind, so check the button
+        is still there rather than trusting the mark.
       */
       if (scope.hasAttribute(MOUNTED) && scope.querySelector(`.${BUTTON_CLASS}`)) {
         continue;
@@ -157,12 +221,12 @@
   }
 
   /*
-    Gmail is a single-page app: compose windows are created, minimised and
+    Both are single-page apps: compose windows are created, minimised and
     destroyed without a navigation, so there's no one moment to hook.
 
-    Coalesced, because the scan now climbs from every compose body rather than
-    matching one selector, and Gmail mutates the DOM on every keystroke. A
-    timer rather than `requestAnimationFrame`: frames are suspended while the
+    Coalesced, because the scan climbs from every compose body rather than
+    matching one selector, and both clients mutate the DOM on every keystroke.
+    A timer rather than `requestAnimationFrame`: frames are suspended while the
     tab is hidden, and a reply opened in a background tab would then sit there
     without a button until something brought the tab forward.
   */
@@ -203,10 +267,11 @@
   }
 
   /**
-   * Preferred: paste, so Gmail's own handler runs.
+   * Preferred: paste, so the client's own handler runs.
    *
-   * That handler is what uploads `data:` images and rewrites `src` to a hosted
-   * URL — the same thing it does for a hand-paste, and the reason images
+   * That handler is what takes `data:` images off our hands — Gmail uploads
+   * them and rewrites `src` to a hosted URL, Outlook turns them into inline
+   * attachments — exactly as each does for a hand-paste, and the reason images
    * survive at all. The clipboard was loaded by the designer tab before it
    * handed over. `execCommand('paste')` is refused to ordinary pages and
    * allowed here only because the manifest asks for `clipboardRead`.
@@ -219,7 +284,7 @@
   /**
    * Fallback: write the markup in directly.
    *
-   * Always lands, which is exactly why it's second — Gmail's paste handler
+   * Always lands, which is exactly why it's second — the client's paste handler
    * never runs, so a `data:` image goes out as a `data:` image and most
    * clients drop it. The caller tells the user when it comes to this.
    */
@@ -236,13 +301,14 @@
     if (message?.type !== 'insert') return false;
 
     const body = targetBody();
-    if (!body) {
-      sendResponse({
-        status: 'error',
-        error: 'No Gmail compose window is open. Hit Compose, then try again.',
-      });
-      return false;
-    }
+    /*
+      Silence rather than an error, because under `all_frames` every frame of
+      an Outlook tab gets this message and only one of them can be holding the
+      draft. A frame that answered "no compose here" would race the frame that
+      has one and win. The worker reads no-answer-from-anyone as no compose
+      window open, which is the same thing said once.
+    */
+    if (!body) return false;
 
     try {
       if (insertByPaste(body)) {

@@ -35,11 +35,34 @@ load-bearing and type errors surface nowhere else.
 
 ### The Chrome extension
 
-`extension/` is the MV3 extension that opens the designer beside a Gmail compose window
-(`manifest.json`, `background.js`, `content.js`, `detect.js`, and its own README for
-loading it unpacked). The designer itself isn't rebuilt for it — `ext:build` is the
-ordinary Vite build with `--base=./`, because an extension page is loaded from a
+`extension/` is the MV3 extension that opens the designer beside a **Gmail or Outlook Web**
+compose window (`manifest.json`, `background.js`, `content.js`, `detect.js`, and its own
+README for loading it unpacked). The designer itself isn't rebuilt for it — `ext:build` is
+the ordinary Vite build with `--base=./`, because an extension page is loaded from a
 `chrome-extension://` origin where absolute `/assets/…` paths resolve to nothing.
+
+**Everything client-specific lives in one object.** `HOSTS` in `content.js` holds the body
+selectors, the Send selectors and the scope-climb depth per client; `resolveHost()` picks
+one from `location.hostname` and the rest of the file is written against the result. The
+service worker is client-agnostic — it stores `{ tabId, host }` per pairing only so the
+app's insert button can name the client it will land in (`paired-host` → `pairedMailHostLabel`).
+Adding a third client is an entry in `HOSTS` plus a `matches` entry; don't sprinkle
+hostname checks through the file.
+
+Three things are load-bearing:
+
+- **Outlook is injected with `all_frames`, Gmail is not.** Outlook Web can be hosted inside
+  the M365 shell, and the compose editor is then in a subframe the top document can't see.
+  Gmail keeps the single-frame injection it always had, so nothing about it changes.
+- **A content script with no draft in front of it answers the `insert` message with
+  silence**, not with an error. Under `all_frames` every frame gets that message and the
+  frames without a draft would win the race against the one that has it. The worker reads
+  "nobody answered" — an undefined result, or a closed port — as *no compose window open*,
+  which is the same sentence said once.
+- **Outlook's `maxScopeDepth` is 30 to Gmail's 15.** Its Send is in the ribbon rather than
+  in a bar under the body, so the nearest ancestor holding both is much further up. Walking
+  further is safe because the real guard is the climb stopping the moment it can see a
+  second draft.
 
 `ext:package` produces the store upload via
 [scripts/package-extension.mjs](scripts/package-extension.mjs). It zips from *inside*

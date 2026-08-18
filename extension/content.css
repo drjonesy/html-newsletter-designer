@@ -1,13 +1,14 @@
 /*
-  The compose-window button.
+  The compose-window button, in Gmail and in Outlook Web.
 
-  Deliberately not a Gmail lookalike. It sits inches from Send, and a button
-  that borrows Gmail's styling while doing something Gmail didn't build is how
-  people click it by accident. The accent is the app's own (accent-500), so the
-  button reads as belonging to the designer it opens.
+  Deliberately not a lookalike of either. It sits inches from Send, and a button
+  that borrows the client's styling while doing something the client didn't
+  build is how people click it by accident. The accent is the app's own
+  (accent-500), so the button reads as belonging to the designer it opens.
 
   Everything is scoped under one class and states its own inherited values —
-  Gmail's stylesheet is aggressive, and an unstated property is one Gmail sets.
+  both stylesheets are aggressive, and an unstated property is one the client
+  sets.
 */
 .nl-designer-btn {
   display: inline-flex;
@@ -18,7 +19,7 @@
   border-radius: 18px;
   background: #944dbc;
   color: #fff;
-  font: 500 14px/1 'Google Sans', Roboto, system-ui, sans-serif;
+  font: 500 14px/1 'Google Sans', 'Segoe UI', Roboto, system-ui, sans-serif;
   letter-spacing: 0.15px;
   white-space: nowrap;
   cursor: pointer;
@@ -40,9 +41,23 @@
 }
 
 /*
-  Used only when the send button's cell can't be found — a Gmail layout change,
-  or a compose window in a shape this doesn't recognise. Better a button in the
-  corner than no button at all.
+  Outlook's Send sits in the ribbon rather than in a bar of its own, and that
+  row is shorter than Gmail's — a pill built for Gmail's 36px actions makes the
+  strip grow and pushes the compose form down. Squarer corners for the same
+  reason: it's next to Fluent's 4px buttons, not Material's stadiums.
+*/
+.nl-designer-btn--outlook {
+  margin-left: 8px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/*
+  Used only when the send button's cell can't be found — a layout change in
+  either client, or a compose window in a shape this doesn't recognise. Better a
+  button in the corner than no button at all.
 */
 .nl-designer-btn--floating {
   position: absolute;
