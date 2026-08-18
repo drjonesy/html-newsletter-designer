@@ -174,7 +174,7 @@ export const AddonsPanel: React.FC = () => {
   return (
     <>
       <PanelHeader
-        title="Add-ons"
+        title="Tools"
         subtitle="Extras and integrations that plug into the designer."
       />
       <PanelBody>

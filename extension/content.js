@@ -12,6 +12,7 @@
   'use strict';
 
   const MOUNTED = 'data-newsletter-designer';
+  const BUTTON_CLASS = 'nl-designer-btn';
 
   /* --- Finding things in Gmail ------------------------------------------ */
   /*
@@ -23,21 +24,56 @@
   const BODY_SELECTORS = [
     'div[aria-label="Message Body"][contenteditable="true"]',
     'div[role="textbox"][contenteditable="true"][aria-multiline="true"]',
+    'div[g_editable="true"][contenteditable="true"]',
   ];
+  const BODY_SELECTOR = BODY_SELECTORS.join(',');
 
-  function composeBodyIn(dialog) {
-    for (const selector of BODY_SELECTORS) {
-      const found = dialog.querySelector(selector);
-      if (found) return found;
-    }
-    return null;
+  function composeBodies(root = document) {
+    return root.querySelectorAll(BODY_SELECTOR);
   }
 
-  function sendButtonIn(dialog) {
+  function sendButtonIn(scope) {
     return (
-      dialog.querySelector('div[role="button"][aria-label^="Send"]') ||
-      dialog.querySelector('div[role="button"][data-tooltip^="Send"]')
+      scope.querySelector('div[role="button"][aria-label^="Send"]') ||
+      scope.querySelector('div[role="button"][data-tooltip^="Send"]')
     );
+  }
+
+  /*
+    The compose scope: the smallest ancestor of a body that also holds that
+    draft's Send button.
+
+    Scanning for `div[role="dialog"]` only ever found the pop-out window. A
+    reply written *in* the conversation — the common case — isn't a dialog at
+    all, it's part of the thread, so it never got a button. There's no one
+    container Gmail marks for both, but every compose has a body and a Send,
+    so climbing from the body to the first ancestor holding a Send finds the
+    right box in either shape.
+
+    Tightest wins, which is what keeps two open drafts apart: the other
+    draft's Send button is down a different branch, so the climb reaches this
+    one's first. A compose whose Send hasn't rendered yet would otherwise walk
+    out to a container holding somebody else's, so the climb stops the moment
+    it can see a second draft. Giving up costs nothing: the scan runs again on
+    the next mutation, by which time the button it was looking for exists.
+  */
+  const MAX_SCOPE_DEPTH = 15;
+
+  function composeScopeFor(body) {
+    let node = body.parentElement;
+    for (let depth = 0; node && depth < MAX_SCOPE_DEPTH; depth++) {
+      if (node === document.body) break;
+      /*
+        Asked before the Send check, not after: an ancestor that can already
+        see two drafts is past this compose rather than around it, and the
+        Send button it holds belongs to the neighbour. Checking Send first
+        hands this body the wrong compose and puts a second button there.
+      */
+      if (composeBodies(node).length > 1) return null;
+      if (sendButtonIn(node)) return node;
+      node = node.parentElement;
+    }
+    return null;
   }
 
   /*
@@ -62,23 +98,19 @@
   function targetBody() {
     // Still in the document? A closed compose window leaves a detached node.
     if (lastBody && lastBody.isConnected) return lastBody;
-    for (const dialog of document.querySelectorAll('div[role="dialog"]')) {
-      const body = composeBodyIn(dialog);
-      if (body) return body;
-    }
-    return null;
+    // An inline reply is as good a draft as a pop-out one, so ask for both.
+    return composeBodies()[0] || null;
   }
 
   /* --- The button ------------------------------------------------------- */
 
-  function mountButton(dialog) {
-    const send = sendButtonIn(dialog);
-    const body = composeBodyIn(dialog);
-    if (!send || !body) return false;
+  function mountButton(scope, body) {
+    const send = sendButtonIn(scope);
+    if (!send) return false;
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'nl-designer-btn';
+    button.className = BUTTON_CLASS;
     button.textContent = 'Design newsletter';
     button.title = 'Open the Newsletter Designer and insert the result here';
     button.addEventListener('click', (event) => {
@@ -99,26 +131,52 @@
     if (anchor && anchor.parentElement) {
       anchor.parentElement.insertBefore(button, anchor.nextSibling);
     } else {
-      dialog.appendChild(button);
+      scope.appendChild(button);
       button.classList.add('nl-designer-btn--floating');
     }
 
-    dialog.setAttribute(MOUNTED, '1');
+    scope.setAttribute(MOUNTED, '1');
     return true;
   }
 
   function scan() {
-    const dialogs = document.querySelectorAll(
-      `div[role="dialog"]:not([${MOUNTED}])`
-    );
-    for (const dialog of dialogs) mountButton(dialog);
+    for (const body of composeBodies()) {
+      const scope = composeScopeFor(body);
+      if (!scope) continue;
+      /*
+        The attribute alone isn't enough. Gmail re-renders a compose in place —
+        minimise, pop out, switch to full screen — and takes our button with it
+        while leaving the marked container behind, so check the button is still
+        there rather than trusting the mark.
+      */
+      if (scope.hasAttribute(MOUNTED) && scope.querySelector(`.${BUTTON_CLASS}`)) {
+        continue;
+      }
+      mountButton(scope, body);
+    }
   }
 
   /*
     Gmail is a single-page app: compose windows are created, minimised and
     destroyed without a navigation, so there's no one moment to hook.
+
+    Coalesced, because the scan now climbs from every compose body rather than
+    matching one selector, and Gmail mutates the DOM on every keystroke. A
+    timer rather than `requestAnimationFrame`: frames are suspended while the
+    tab is hidden, and a reply opened in a background tab would then sit there
+    without a button until something brought the tab forward.
   */
-  new MutationObserver(scan).observe(document.body, {
+  const SCAN_DELAY_MS = 100;
+  let scanTimer = 0;
+  function queueScan() {
+    if (scanTimer) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = 0;
+      scan();
+    }, SCAN_DELAY_MS);
+  }
+
+  new MutationObserver(queueScan).observe(document.body, {
     childList: true,
     subtree: true,
   });

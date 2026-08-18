@@ -12,7 +12,7 @@ const TABS: Tab[] = [
   { id: 'blocks', label: 'Blocks', icon: Grid3x3 },
   { id: 'sections', label: 'Sections', icon: Layers },
   { id: 'theme', label: 'Theme', icon: PaintBucket },
-  { id: 'addons', label: 'Add-ons', icon: Puzzle },
+  { id: 'addons', label: 'Tools', icon: Puzzle },
 ];
 
 /**
