@@ -3,6 +3,7 @@ import {
   Chrome,
   ChevronDown,
   CircleCheck,
+  ExternalLink,
   Puzzle,
   TriangleAlert,
 } from 'lucide-react';
@@ -14,6 +15,32 @@ import {
 } from '../../utils/extensionHost';
 
 const code = 'rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px]';
+
+/**
+ * The published listing. Absolute, and `noreferrer`, for the same reason the
+ * Help panel's links are: this leaves the app entirely, and an extension page
+ * has no origin a relative href could resolve against.
+ *
+ * The share link Chrome hands out carries a `utm_source` tracking parameter.
+ * It's dropped — the app makes no network calls of its own, and appending
+ * someone's campaign tag to the one link it does offer is the same thing by
+ * a slower route.
+ */
+const STORE_URL =
+  'https://chromewebstore.google.com/detail/fdmeebbcgghpbckkdgaaodfbfbnghkmb';
+
+/** The one link out to the listing — install it, or rate the copy you have. */
+const StoreLink: React.FC<{ label: string }> = ({ label }) => (
+  <a
+    href={STORE_URL}
+    target="_blank"
+    rel="noreferrer"
+    className="flex items-center justify-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-accent-300 hover:bg-accent-50 hover:text-accent-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+  >
+    <ExternalLink className="h-4 w-4" />
+    {label}
+  </a>
+);
 
 /**
  * What the extension reports about itself, or `null` until it has answered.
@@ -55,8 +82,14 @@ const AddonCard: React.FC<{
   title: string;
   summary: React.ReactNode;
   chips?: React.ReactNode;
+  /**
+   * Shown under the summary whether the card is open or shut, and outside the
+   * toggle button — an `<a>` nested inside a `<button>` is invalid markup and
+   * the browser resolves it by swallowing one of the two clicks.
+   */
+  action?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ icon, title, summary, chips, children }) => {
+}> = ({ icon, title, summary, chips, action, children }) => {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
 
@@ -89,6 +122,8 @@ const AddonCard: React.FC<{
           }`}
         />
       </button>
+
+      {action && <div className="px-4 pb-4">{action}</div>}
 
       {open && (
         <div id={detailsId} className="border-t border-slate-200 p-4">
@@ -168,16 +203,16 @@ export const AddonsPanel: React.FC = () => {
                   )}
 
                   {/*
-                    Two different facts share this slot. For an install we can
-                    see, it reports how *that copy* got here. With nothing
-                    installed it states what installing will take — still true,
-                    since there's no Web Store listing to offer instead.
-                    Unknown shows nothing: absent means unknown, and inferring
-                    "developer mode" from silence would be a guess.
+                    How *this copy* got here, and only for a copy we can see.
+                    Nothing installed shows nothing: since the listing went up,
+                    installing means the Web Store, so "developer mode" would be
+                    describing a path nobody has to take. Unknown shows nothing
+                    either — absent means unknown, and inferring an install type
+                    from silence would be a guess.
                   */}
                   {ext.installType === 'normal' ? (
                     <Chip tone="neutral">Chrome Web Store</Chip>
-                  ) : ext.installType === 'development' || !ext.installed ? (
+                  ) : ext.installType === 'development' ? (
                     <Chip tone="warn" icon={<TriangleAlert className="h-3 w-3" />}>
                       Developer mode
                     </Chip>
@@ -193,18 +228,30 @@ export const AddonsPanel: React.FC = () => {
                 compose window, and drops the finished email into your draft.
               </>
             }
+            /*
+              Unconditional, and outside the collapsed body. It was once only in
+              the "not installed" branch, which is the one state the people most
+              likely to want the listing — to rate it, to share it, to swap a
+              dev copy for the store build — are never in.
+            */
+            action={<StoreLink label="View on the Chrome Web Store" />}
           >
-            {/* The full caveat, only while it actually applies. */}
-            {ext?.installType !== 'normal' && (
+            {/*
+              The caveat, only for a copy that is actually loaded unpacked —
+              not, as it once was, for everyone who hadn't installed it yet.
+              The Web Store version has none of this, so the note now ends by
+              pointing at it.
+            */}
+            {ext?.installType === 'development' && (
               <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
                 <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" />
                 <div className="text-xs leading-relaxed text-amber-900">
-                  <p className="font-semibold">Developer mode only</p>
+                  <p className="font-semibold">Loaded unpacked</p>
                   <p className="mt-1">
-                    This isn't on the Chrome Web Store, so it has to be loaded
-                    unpacked with developer mode switched on. Chrome shows a
-                    "disable developer mode extensions" warning on startup, and
-                    the extension is removed if you turn developer mode off.
+                    This copy is running in developer mode, so Chrome shows a
+                    "disable developer mode extensions" warning on startup and
+                    removes it if you turn developer mode off. The Web Store
+                    build updates itself and does neither.
                   </p>
                 </div>
               </div>
@@ -225,25 +272,27 @@ export const AddonsPanel: React.FC = () => {
               </p>
             ) : (
               <>
-                <ol className="mt-3 list-decimal space-y-1 pl-4 text-xs leading-relaxed text-slate-600 marker:text-slate-400">
-                  <li>
-                    Run <code className={code}>pnpm ext:build</code> in the
-                    project
-                  </li>
-                  <li>
-                    Open <code className={code}>chrome://extensions</code>
-                  </li>
-                  <li>Turn on Developer mode, top right</li>
-                  <li>
-                    <strong>Load unpacked</strong>, and pick the{' '}
-                    <code className={code}>extension/</code> folder
-                  </li>
-                </ol>
+                <p className="mt-3 text-xs leading-relaxed text-slate-600">
+                  Install it from the Chrome Web Store, then open Gmail, hit
+                  Compose, and click <strong>Design newsletter</strong>.
+                </p>
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">
                   Already installed and still seeing this? The extension only
                   announces itself on origins it has permission for — add this
                   one to <code className={code}>detect.js</code>'s matches in{' '}
                   <code className={code}>manifest.json</code>.
+                </p>
+                {/*
+                  The unpacked route is still how the repo is developed against,
+                  so it stays — below the store button, in the smaller type that
+                  says which of the two is the ordinary path.
+                */}
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Working on the extension itself? Run{' '}
+                  <code className={code}>pnpm ext:build</code>, open{' '}
+                  <code className={code}>chrome://extensions</code>, turn on
+                  Developer mode, then <strong>Load unpacked</strong> and pick
+                  the <code className={code}>extension/</code> folder.
                 </p>
               </>
             )}
